@@ -436,6 +436,8 @@ func produceVerificationArgs(
 ) (*ConsensusState, signing.SignatureData, uint64, error) {
 	if revision := height.GetRevisionNumber(); revision != 0 {
 		return nil, nil, 0, sdkerrors.Wrapf(sdkerrors.ErrInvalidHeight, "revision must be 0 for Multisig, got revision-number: %d", revision)
+	} else if h := height.GetRevisionHeight(); h != 1 {
+		return nil, nil, 0, sdkerrors.Wrapf(sdkerrors.ErrInvalidHeight, "height must be 1 for Multisig, got revision-number: %d", h)
 	}
 
 	if prefix == nil {
