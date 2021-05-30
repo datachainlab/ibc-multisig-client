@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+
 	ics23 "github.com/confio/ics23/go"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -132,11 +134,7 @@ func (cs ClientState) VerifyClientState(
 		return err
 	}
 
-	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cons.Timestamp = timestamp
-	setConsensusState(store, cdc, cons, height)
-	setClientState(store, cdc, &cs)
-	return nil
+	return cs.updateStateIfHeightIsAdvanced(store, cdc, height, cons, timestamp)
 }
 
 // VerifyClientConsensusState verifies a proof of the consensus state of the
@@ -171,11 +169,7 @@ func (cs ClientState) VerifyClientConsensusState(
 		return err
 	}
 
-	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cons.Timestamp = timestamp
-	setConsensusState(store, cdc, cons, height)
-	setClientState(store, cdc, &cs)
-	return nil
+	return cs.updateStateIfHeightIsAdvanced(store, cdc, height, cons, timestamp)
 }
 
 // VerifyConnectionState verifies a proof of the connection state of the
@@ -209,11 +203,7 @@ func (cs ClientState) VerifyConnectionState(
 		return err
 	}
 
-	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cons.Timestamp = timestamp
-	setConsensusState(store, cdc, cons, height)
-	setClientState(store, cdc, &cs)
-	return nil
+	return cs.updateStateIfHeightIsAdvanced(store, cdc, height, cons, timestamp)
 }
 
 // VerifyChannelState verifies a proof of the channel state of the specified
@@ -248,11 +238,7 @@ func (cs ClientState) VerifyChannelState(
 		return err
 	}
 
-	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cons.Timestamp = timestamp
-	setConsensusState(store, cdc, cons, height)
-	setClientState(store, cdc, &cs)
-	return nil
+	return cs.updateStateIfHeightIsAdvanced(store, cdc, height, cons, timestamp)
 }
 
 // VerifyPacketCommitment verifies a proof of an outgoing packet commitment at
@@ -290,11 +276,7 @@ func (cs ClientState) VerifyPacketCommitment(
 		return err
 	}
 
-	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cons.Timestamp = timestamp
-	setConsensusState(store, cdc, cons, height)
-	setClientState(store, cdc, &cs)
-	return nil
+	return cs.updateStateIfHeightIsAdvanced(store, cdc, height, cons, timestamp)
 }
 
 // VerifyPacketAcknowledgement verifies a proof of an incoming packet
@@ -332,11 +314,7 @@ func (cs ClientState) VerifyPacketAcknowledgement(
 		return err
 	}
 
-	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cons.Timestamp = timestamp
-	setConsensusState(store, cdc, cons, height)
-	setClientState(store, cdc, &cs)
-	return nil
+	return cs.updateStateIfHeightIsAdvanced(store, cdc, height, cons, timestamp)
 }
 
 // VerifyPacketReceiptAbsence verifies a proof of the absence of an
@@ -374,11 +352,7 @@ func (cs ClientState) VerifyPacketReceiptAbsence(
 		return err
 	}
 
-	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cons.Timestamp = timestamp
-	setConsensusState(store, cdc, cons, height)
-	setClientState(store, cdc, &cs)
-	return nil
+	return cs.updateStateIfHeightIsAdvanced(store, cdc, height, cons, timestamp)
 }
 
 // VerifyNextSequenceRecv verifies a proof of the next sequence number to be
@@ -415,10 +389,25 @@ func (cs ClientState) VerifyNextSequenceRecv(
 		return err
 	}
 
-	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cons.Timestamp = timestamp
-	setConsensusState(store, cdc, cons, height)
-	setClientState(store, cdc, &cs)
+	return cs.updateStateIfHeightIsAdvanced(store, cdc, height, cons, timestamp)
+}
+
+func (cs ClientState) updateStateIfHeightIsAdvanced(
+	store sdk.KVStore,
+	cdc codec.BinaryCodec,
+	height exported.Height,
+	cons *ConsensusState,
+	timestamp uint64,
+) error {
+	if height.GT(cs.Height) {
+		cs.Height = height.(clienttypes.Height)
+		if timestamp < cons.Timestamp {
+			return fmt.Errorf("the timestamp must be advanced from previous state")
+		}
+		cons.Timestamp = timestamp
+		setClientState(store, cdc, &cs)
+		setConsensusState(store, cdc, cons, height)
+	}
 	return nil
 }
 
@@ -436,8 +425,6 @@ func produceVerificationArgs(
 ) (*ConsensusState, signing.SignatureData, uint64, error) {
 	if revision := height.GetRevisionNumber(); revision != 0 {
 		return nil, nil, 0, sdkerrors.Wrapf(sdkerrors.ErrInvalidHeight, "revision must be 0 for Multisig, got revision-number: %d", revision)
-	} else if h := height.GetRevisionHeight(); h != 1 {
-		return nil, nil, 0, sdkerrors.Wrapf(sdkerrors.ErrInvalidHeight, "height must be 1 for Multisig, got revision-number: %d", h)
 	}
 
 	if prefix == nil {
