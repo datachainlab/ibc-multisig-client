@@ -10,6 +10,8 @@ import (
 	"github.com/cosmos/ibc-go/modules/core/exported"
 )
 
+// TODO add a handler for misbehaviour pattern that have different commitments for that same height
+
 // CheckMisbehaviourAndUpdateState determines whether or not the currently registered
 // public key signed over two different messages with the same sequence. If this is true
 // the client state is updated to a frozen status.
