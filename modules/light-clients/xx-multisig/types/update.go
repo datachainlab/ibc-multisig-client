@@ -11,7 +11,8 @@ import (
 // CheckHeaderAndUpdateState checks if the provided header is valid and updates
 // the consensus state if appropriate. It returns an error if:
 // - the header provided is not parseable to a Multisig header
-// - the header sequence does not match the current sequence
+// - the header epoch does not match the current epoch
+// - the header height is not 0
 // - the header timestamp is less than the consensus state timestamp
 // - the currently registered public key did not provide the update signature
 func (cs ClientState) CheckHeaderAndUpdateState(
@@ -40,6 +41,13 @@ func checkHeader(cdc codec.BinaryMarshaler, clientState *ClientState, header *He
 		return sdkerrors.Wrapf(
 			clienttypes.ErrInvalidHeader,
 			"header epoch does not match the client state epoch (%d != %d)", header.Height.RevisionNumber, clientState.Height.RevisionNumber,
+		)
+	}
+
+	if header.Height.RevisionHeight != 0 {
+		return sdkerrors.Wrapf(
+			clienttypes.ErrInvalidHeader,
+			"header height must be 0 (%d)", header.Height.RevisionHeight,
 		)
 	}
 
