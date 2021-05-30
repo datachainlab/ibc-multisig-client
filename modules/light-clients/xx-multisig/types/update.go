@@ -16,7 +16,7 @@ import (
 // - the header timestamp is less than the consensus state timestamp
 // - the currently registered public key did not provide the update signature
 func (cs ClientState) CheckHeaderAndUpdateState(
-	ctx sdk.Context, cdc codec.BinaryMarshaler, clientStore sdk.KVStore,
+	ctx sdk.Context, cdc codec.BinaryCodec, clientStore sdk.KVStore,
 	header exported.Header,
 ) (exported.ClientState, exported.ConsensusState, error) {
 	smHeader, ok := header.(*Header)
@@ -25,8 +25,14 @@ func (cs ClientState) CheckHeaderAndUpdateState(
 			clienttypes.ErrInvalidHeader, "header type %T, expected  %T", header, &Header{},
 		)
 	}
+	consensusState, err := getConsensusState(clientStore, cdc, smHeader.GetHeight())
+	if err != nil {
+		return nil, nil, sdkerrors.Wrapf(
+			err, "could not get consensus state from clientstore at height: %s", smHeader.GetHeight(),
+		)
+	}
 
-	if err := checkHeader(cdc, &cs, smHeader); err != nil {
+	if err := checkValidity(cdc, &cs, consensusState, smHeader); err != nil {
 		return nil, nil, err
 	}
 
@@ -34,8 +40,8 @@ func (cs ClientState) CheckHeaderAndUpdateState(
 	return clientState, consensusState, nil
 }
 
-// checkHeader checks if the Multisig update signature is valid.
-func checkHeader(cdc codec.BinaryMarshaler, clientState *ClientState, header *Header) error {
+// checkValidity checks if the Multisig update signature is valid.
+func checkValidity(cdc codec.BinaryCodec, clientState *ClientState, consensusState *ConsensusState, header *Header) error {
 	// assert given epoch is current epoch
 	if header.Height.RevisionNumber != clientState.Height.RevisionNumber {
 		return sdkerrors.Wrapf(
@@ -44,18 +50,18 @@ func checkHeader(cdc codec.BinaryMarshaler, clientState *ClientState, header *He
 		)
 	}
 
-	if header.Height.RevisionHeight != 0 {
+	if header.Height.RevisionHeight != 1 {
 		return sdkerrors.Wrapf(
 			clienttypes.ErrInvalidHeader,
-			"header height must be 0 (%d)", header.Height.RevisionHeight,
+			"header height must be 1 (%d)", header.Height.RevisionHeight,
 		)
 	}
 
 	// assert update timestamp is not less than current consensus state timestamp
-	if header.Timestamp < clientState.ConsensusState.Timestamp {
+	if header.Timestamp < consensusState.Timestamp {
 		return sdkerrors.Wrapf(
 			clienttypes.ErrInvalidHeader,
-			"header timestamp is less than to the consensus state timestamp (%d < %d)", header.Timestamp, clientState.ConsensusState.Timestamp,
+			"header timestamp is less than to the consensus state timestamp (%d < %d)", header.Timestamp, consensusState.Timestamp,
 		)
 	}
 
@@ -70,7 +76,7 @@ func checkHeader(cdc codec.BinaryMarshaler, clientState *ClientState, header *He
 		return err
 	}
 
-	publicKey, err := clientState.ConsensusState.GetPubKey()
+	publicKey, err := consensusState.GetPubKey()
 	if err != nil {
 		return err
 	}
@@ -94,6 +100,6 @@ func update(clientState *ClientState, header *Header) (*ClientState, *ConsensusS
 		clientState.Height.RevisionNumber+1,
 		1,
 	)
-	clientState.ConsensusState = consensusState
+
 	return clientState, consensusState
 }

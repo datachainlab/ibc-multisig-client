@@ -18,7 +18,7 @@ import (
 // order processing dependent.
 func (cs ClientState) CheckMisbehaviourAndUpdateState(
 	ctx sdk.Context,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	clientStore sdk.KVStore,
 	misbehaviour exported.Misbehaviour,
 ) (exported.ClientState, error) {
@@ -31,26 +31,31 @@ func (cs ClientState) CheckMisbehaviourAndUpdateState(
 		)
 	}
 
-	if cs.IsFrozen() {
-		return nil, sdkerrors.Wrapf(clienttypes.ErrClientFrozen, "client is already frozen")
-	}
-
 	if soloMisbehaviour.SignatureOne.DataType != HEADER || soloMisbehaviour.SignatureTwo.DataType != HEADER {
 		return nil, sdkerrors.Wrap(errors.New("unknown misbehaviour type"), "DataType must be HEADER")
 	} else if soloMisbehaviour.SignatureOne.Height.RevisionNumber != soloMisbehaviour.SignatureTwo.Height.RevisionNumber {
 		return nil, sdkerrors.Wrap(errors.New("unknown misbehaviour type"), "RevisionNumber mismatch")
 	}
 
+	height := clienttypes.NewHeight(soloMisbehaviour.Epoch, 1)
+	consensusState, err := getConsensusState(clientStore, cdc, height)
+	if err != nil {
+		return nil, sdkerrors.Wrapf(
+			clienttypes.ErrConsensusStateNotFound,
+			"consensus state does not exist for height %s", height,
+		)
+	}
+
 	// NOTE: a check that the misbehaviour message data are not equal is done by
 	// misbehaviour.ValidateBasic which is called by the 02-client keeper.
 
 	// verify first signature
-	if err := verifySignatureAndData(cdc, cs, soloMisbehaviour, soloMisbehaviour.SignatureOne); err != nil {
+	if err := verifySignatureAndData(cdc, cs, consensusState, soloMisbehaviour, soloMisbehaviour.SignatureOne); err != nil {
 		return nil, sdkerrors.Wrap(err, "failed to verify signature one")
 	}
 
 	// verify second signature
-	if err := verifySignatureAndData(cdc, cs, soloMisbehaviour, soloMisbehaviour.SignatureTwo); err != nil {
+	if err := verifySignatureAndData(cdc, cs, consensusState, soloMisbehaviour, soloMisbehaviour.SignatureTwo); err != nil {
 		return nil, sdkerrors.Wrap(err, "failed to verify signature two")
 	}
 
@@ -61,7 +66,7 @@ func (cs ClientState) CheckMisbehaviourAndUpdateState(
 // verifySignatureAndData verifies that the currently registered public key has signed
 // over the provided data and that the data is valid. The data is valid if it can be
 // unmarshaled into the specified data type.
-func verifySignatureAndData(cdc codec.BinaryMarshaler, clientState ClientState, misbehaviour *Misbehaviour, sigAndData *SignatureAndData) error {
+func verifySignatureAndData(cdc codec.BinaryCodec, clientState ClientState, consensusState *ConsensusState, misbehaviour *Misbehaviour, sigAndData *SignatureAndData) error {
 
 	// do not check misbehaviour timestamp since we want to allow processing of past misbehaviour
 
@@ -73,7 +78,7 @@ func verifySignatureAndData(cdc codec.BinaryMarshaler, clientState ClientState, 
 	data, err := MisbehaviourSignBytes(
 		cdc,
 		clienttypes.NewHeight(misbehaviour.Epoch, 1), sigAndData.Timestamp,
-		clientState.ConsensusState.Diversifier,
+		consensusState.Diversifier,
 		sigAndData.DataType,
 		sigAndData.Data,
 	)
@@ -86,7 +91,7 @@ func verifySignatureAndData(cdc codec.BinaryMarshaler, clientState ClientState, 
 		return err
 	}
 
-	publicKey, err := clientState.ConsensusState.GetPubKey()
+	publicKey, err := consensusState.GetPubKey()
 	if err != nil {
 		return err
 	}

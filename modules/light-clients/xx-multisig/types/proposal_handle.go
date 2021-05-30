@@ -7,7 +7,7 @@ import (
 )
 
 func (cs ClientState) CheckSubstituteAndUpdateState(
-	ctx sdk.Context, cdc codec.BinaryMarshaler, subjectClientStore,
+	ctx sdk.Context, cdc codec.BinaryCodec, subjectClientStore,
 	_ sdk.KVStore, substituteClient exported.ClientState,
 	_ exported.Height,
 ) (exported.ClientState, error) {

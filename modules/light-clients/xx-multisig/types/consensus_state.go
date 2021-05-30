@@ -42,6 +42,14 @@ func (cs ConsensusState) GetPubKey() (cryptotypes.PubKey, error) {
 	return publicKey, nil
 }
 
+func (cs ConsensusState) MustGetPubKey() cryptotypes.PubKey {
+	pubKey, err := cs.GetPubKey()
+	if err != nil {
+		panic(err)
+	}
+	return pubKey
+}
+
 // ValidateBasic defines basic validation for the Multisig consensus state.
 func (cs ConsensusState) ValidateBasic() error {
 	if cs.Timestamp == 0 {

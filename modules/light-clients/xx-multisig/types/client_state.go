@@ -1,12 +1,9 @@
 package types
 
 import (
-	"reflect"
-
 	ics23 "github.com/confio/ics23/go"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
@@ -23,11 +20,10 @@ const (
 var _ exported.ClientState = (*ClientState)(nil)
 
 // NewClientState creates a new ClientState instance.
-func NewClientState(latestHeight clienttypes.Height, consensusState *ConsensusState, allowUpdateAfterProposal bool) *ClientState {
+func NewClientState(latestHeight clienttypes.Height, allowUpdateAfterProposal bool) *ClientState {
 	return &ClientState{
 		Height:                   latestHeight,
 		FrozenHeight:             clienttypes.ZeroHeight(),
-		ConsensusState:           consensusState,
 		AllowUpdateAfterProposal: allowUpdateAfterProposal,
 	}
 }
@@ -44,9 +40,16 @@ func (cs ClientState) GetLatestHeight() exported.Height {
 	return cs.Height
 }
 
-// IsFrozen returns true if the client is frozen.
-func (cs ClientState) IsFrozen() bool {
-	return !cs.FrozenHeight.IsZero()
+// Status returns the status of the solo machine client.
+// The client may be:
+// - Active: if frozen sequence is 0
+// - Frozen: otherwise solo machine is frozen
+func (cs ClientState) Status(_ sdk.Context, _ sdk.KVStore, _ codec.BinaryCodec) exported.Status {
+	if !cs.FrozenHeight.IsZero() {
+		return exported.Frozen
+	}
+
+	return exported.Active
 }
 
 // GetFrozenHeight returns the frozen sequence of the client.
@@ -66,25 +69,21 @@ func (cs ClientState) Validate() error {
 	if cs.Height.IsZero() {
 		return sdkerrors.Wrap(clienttypes.ErrInvalidClient, "sequence cannot be 0")
 	}
-	if cs.ConsensusState == nil {
-		return sdkerrors.Wrap(clienttypes.ErrInvalidConsensus, "consensus state cannot be nil")
-	}
-	return cs.ConsensusState.ValidateBasic()
+	return nil
 }
 
 // ZeroCustomFields returns Multisig client state with client-specific fields FrozenSequence,
 // and AllowUpdateAfterProposal zeroed out
 func (cs ClientState) ZeroCustomFields() exported.ClientState {
 	return NewClientState(
-		cs.Height, cs.ConsensusState, false,
+		cs.Height, false,
 	)
 }
 
 // Initialize will check that initial consensus state is equal to the latest consensus state of the initial client.
-func (cs ClientState) Initialize(_ sdk.Context, _ codec.BinaryMarshaler, _ sdk.KVStore, consState exported.ConsensusState) error {
-	if !reflect.DeepEqual(cs.ConsensusState, consState) {
-		return sdkerrors.Wrapf(clienttypes.ErrInvalidConsensus, "consensus state in initial client does not equal initial consensus state. expected: %s, got: %s",
-			cs.ConsensusState, consState)
+func (cs ClientState) Initialize(_ sdk.Context, _ codec.BinaryCodec, _ sdk.KVStore, consState exported.ConsensusState) error {
+	if cs.Height.RevisionHeight != 1 {
+		return sdkerrors.Wrapf(clienttypes.ErrInvalidHeader, "the height must be 1, not %v", cs.Height.RevisionHeight)
 	}
 	return nil
 }
@@ -96,7 +95,7 @@ func (cs ClientState) ExportMetadata(_ sdk.KVStore) []exported.GenesisMetadata {
 
 // VerifyUpgradeAndUpdateState returns an error since Multisig client does not support upgrades
 func (cs ClientState) VerifyUpgradeAndUpdateState(
-	_ sdk.Context, _ codec.BinaryMarshaler, _ sdk.KVStore,
+	_ sdk.Context, _ codec.BinaryCodec, _ sdk.KVStore,
 	_ exported.ClientState, _ exported.ConsensusState, _, _ []byte,
 ) (exported.ClientState, exported.ConsensusState, error) {
 	return nil, nil, sdkerrors.Wrap(clienttypes.ErrInvalidUpgradeClient, "cannot upgrade Multisig client")
@@ -106,14 +105,14 @@ func (cs ClientState) VerifyUpgradeAndUpdateState(
 // stored on the Multisig.
 func (cs ClientState) VerifyClientState(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	prefix exported.Prefix,
 	counterpartyClientIdentifier string,
 	proof []byte,
 	clientState exported.ClientState,
 ) error {
-	publicKey, sigData, timestamp, err := produceVerificationArgs(cdc, cs, height, prefix, proof)
+	cons, sigData, timestamp, err := produceVerificationArgs(store, cdc, cs, height, prefix, proof)
 	if err != nil {
 		return err
 	}
@@ -124,17 +123,18 @@ func (cs ClientState) VerifyClientState(
 		return err
 	}
 
-	signBz, err := ClientStateSignBytes(cdc, height.(clienttypes.Height), timestamp, cs.ConsensusState.Diversifier, path, clientState)
+	signBz, err := ClientStateSignBytes(cdc, height.(clienttypes.Height), timestamp, cons.Diversifier, path, clientState)
 	if err != nil {
 		return err
 	}
 
-	if err := VerifySignature(publicKey, signBz, sigData); err != nil {
+	if err := VerifySignature(cons.MustGetPubKey(), signBz, sigData); err != nil {
 		return err
 	}
 
 	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cs.ConsensusState.Timestamp = timestamp
+	cons.Timestamp = timestamp
+	setConsensusState(store, cdc, cons, height)
 	setClientState(store, cdc, &cs)
 	return nil
 }
@@ -143,7 +143,7 @@ func (cs ClientState) VerifyClientState(
 // running chain stored on the Multisig.
 func (cs ClientState) VerifyClientConsensusState(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	counterpartyClientIdentifier string,
 	consensusHeight exported.Height,
@@ -151,7 +151,7 @@ func (cs ClientState) VerifyClientConsensusState(
 	proof []byte,
 	consensusState exported.ConsensusState,
 ) error {
-	publicKey, sigData, timestamp, err := produceVerificationArgs(cdc, cs, height, prefix, proof)
+	cons, sigData, timestamp, err := produceVerificationArgs(store, cdc, cs, height, prefix, proof)
 	if err != nil {
 		return err
 	}
@@ -162,17 +162,18 @@ func (cs ClientState) VerifyClientConsensusState(
 		return err
 	}
 
-	signBz, err := ConsensusStateSignBytes(cdc, height.(clienttypes.Height), timestamp, cs.ConsensusState.Diversifier, path, consensusState)
+	signBz, err := ConsensusStateSignBytes(cdc, height.(clienttypes.Height), timestamp, cons.Diversifier, path, consensusState)
 	if err != nil {
 		return err
 	}
 
-	if err := VerifySignature(publicKey, signBz, sigData); err != nil {
+	if err := VerifySignature(cons.MustGetPubKey(), signBz, sigData); err != nil {
 		return err
 	}
 
 	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cs.ConsensusState.Timestamp = timestamp
+	cons.Timestamp = timestamp
+	setConsensusState(store, cdc, cons, height)
 	setClientState(store, cdc, &cs)
 	return nil
 }
@@ -181,14 +182,14 @@ func (cs ClientState) VerifyClientConsensusState(
 // specified connection end stored on the target machine.
 func (cs ClientState) VerifyConnectionState(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	prefix exported.Prefix,
 	proof []byte,
 	connectionID string,
 	connectionEnd exported.ConnectionI,
 ) error {
-	publicKey, sigData, timestamp, err := produceVerificationArgs(cdc, cs, height, prefix, proof)
+	cons, sigData, timestamp, err := produceVerificationArgs(store, cdc, cs, height, prefix, proof)
 	if err != nil {
 		return err
 	}
@@ -199,17 +200,18 @@ func (cs ClientState) VerifyConnectionState(
 		return err
 	}
 
-	signBz, err := ConnectionStateSignBytes(cdc, height.(clienttypes.Height), timestamp, cs.ConsensusState.Diversifier, path, connectionEnd)
+	signBz, err := ConnectionStateSignBytes(cdc, height.(clienttypes.Height), timestamp, cons.Diversifier, path, connectionEnd)
 	if err != nil {
 		return err
 	}
 
-	if err := VerifySignature(publicKey, signBz, sigData); err != nil {
+	if err := VerifySignature(cons.MustGetPubKey(), signBz, sigData); err != nil {
 		return err
 	}
 
 	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cs.ConsensusState.Timestamp = timestamp
+	cons.Timestamp = timestamp
+	setConsensusState(store, cdc, cons, height)
 	setClientState(store, cdc, &cs)
 	return nil
 }
@@ -218,7 +220,7 @@ func (cs ClientState) VerifyConnectionState(
 // channel end, under the specified port, stored on the target machine.
 func (cs ClientState) VerifyChannelState(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	prefix exported.Prefix,
 	proof []byte,
@@ -226,7 +228,7 @@ func (cs ClientState) VerifyChannelState(
 	channelID string,
 	channel exported.ChannelI,
 ) error {
-	publicKey, sigData, timestamp, err := produceVerificationArgs(cdc, cs, height, prefix, proof)
+	cons, sigData, timestamp, err := produceVerificationArgs(store, cdc, cs, height, prefix, proof)
 	if err != nil {
 		return err
 	}
@@ -237,17 +239,18 @@ func (cs ClientState) VerifyChannelState(
 		return err
 	}
 
-	signBz, err := ChannelStateSignBytes(cdc, height.(clienttypes.Height), timestamp, cs.ConsensusState.Diversifier, path, channel)
+	signBz, err := ChannelStateSignBytes(cdc, height.(clienttypes.Height), timestamp, cons.Diversifier, path, channel)
 	if err != nil {
 		return err
 	}
 
-	if err := VerifySignature(publicKey, signBz, sigData); err != nil {
+	if err := VerifySignature(cons.MustGetPubKey(), signBz, sigData); err != nil {
 		return err
 	}
 
 	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cs.ConsensusState.Timestamp = timestamp
+	cons.Timestamp = timestamp
+	setConsensusState(store, cdc, cons, height)
 	setClientState(store, cdc, &cs)
 	return nil
 }
@@ -256,7 +259,7 @@ func (cs ClientState) VerifyChannelState(
 // the specified port, specified channel, and specified sequence.
 func (cs ClientState) VerifyPacketCommitment(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	_ uint64,
 	_ uint64,
@@ -267,7 +270,7 @@ func (cs ClientState) VerifyPacketCommitment(
 	packetSequence uint64,
 	commitmentBytes []byte,
 ) error {
-	publicKey, sigData, timestamp, err := produceVerificationArgs(cdc, cs, height, prefix, proof)
+	cons, sigData, timestamp, err := produceVerificationArgs(store, cdc, cs, height, prefix, proof)
 	if err != nil {
 		return err
 	}
@@ -278,17 +281,18 @@ func (cs ClientState) VerifyPacketCommitment(
 		return err
 	}
 
-	signBz, err := PacketCommitmentSignBytes(cdc, height.(clienttypes.Height), timestamp, cs.ConsensusState.Diversifier, path, commitmentBytes)
+	signBz, err := PacketCommitmentSignBytes(cdc, height.(clienttypes.Height), timestamp, cons.Diversifier, path, commitmentBytes)
 	if err != nil {
 		return err
 	}
 
-	if err := VerifySignature(publicKey, signBz, sigData); err != nil {
+	if err := VerifySignature(cons.MustGetPubKey(), signBz, sigData); err != nil {
 		return err
 	}
 
 	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cs.ConsensusState.Timestamp = timestamp
+	cons.Timestamp = timestamp
+	setConsensusState(store, cdc, cons, height)
 	setClientState(store, cdc, &cs)
 	return nil
 }
@@ -297,7 +301,7 @@ func (cs ClientState) VerifyPacketCommitment(
 // acknowledgement at the specified port, specified channel, and specified sequence.
 func (cs ClientState) VerifyPacketAcknowledgement(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	_ uint64,
 	_ uint64,
@@ -308,7 +312,7 @@ func (cs ClientState) VerifyPacketAcknowledgement(
 	packetSequence uint64,
 	acknowledgement []byte,
 ) error {
-	publicKey, sigData, timestamp, err := produceVerificationArgs(cdc, cs, height, prefix, proof)
+	cons, sigData, timestamp, err := produceVerificationArgs(store, cdc, cs, height, prefix, proof)
 	if err != nil {
 		return err
 	}
@@ -319,17 +323,18 @@ func (cs ClientState) VerifyPacketAcknowledgement(
 		return err
 	}
 
-	signBz, err := PacketAcknowledgementSignBytes(cdc, height.(clienttypes.Height), timestamp, cs.ConsensusState.Diversifier, path, acknowledgement)
+	signBz, err := PacketAcknowledgementSignBytes(cdc, height.(clienttypes.Height), timestamp, cons.Diversifier, path, acknowledgement)
 	if err != nil {
 		return err
 	}
 
-	if err := VerifySignature(publicKey, signBz, sigData); err != nil {
+	if err := VerifySignature(cons.MustGetPubKey(), signBz, sigData); err != nil {
 		return err
 	}
 
 	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cs.ConsensusState.Timestamp = timestamp
+	cons.Timestamp = timestamp
+	setConsensusState(store, cdc, cons, height)
 	setClientState(store, cdc, &cs)
 	return nil
 }
@@ -339,7 +344,7 @@ func (cs ClientState) VerifyPacketAcknowledgement(
 // specified sequence.
 func (cs ClientState) VerifyPacketReceiptAbsence(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	_ uint64,
 	_ uint64,
@@ -349,7 +354,7 @@ func (cs ClientState) VerifyPacketReceiptAbsence(
 	channelID string,
 	packetSequence uint64,
 ) error {
-	publicKey, sigData, timestamp, err := produceVerificationArgs(cdc, cs, height, prefix, proof)
+	cons, sigData, timestamp, err := produceVerificationArgs(store, cdc, cs, height, prefix, proof)
 	if err != nil {
 		return err
 	}
@@ -360,17 +365,18 @@ func (cs ClientState) VerifyPacketReceiptAbsence(
 		return err
 	}
 
-	signBz, err := PacketReceiptAbsenceSignBytes(cdc, height.(clienttypes.Height), timestamp, cs.ConsensusState.Diversifier, path)
+	signBz, err := PacketReceiptAbsenceSignBytes(cdc, height.(clienttypes.Height), timestamp, cons.Diversifier, path)
 	if err != nil {
 		return err
 	}
 
-	if err := VerifySignature(publicKey, signBz, sigData); err != nil {
+	if err := VerifySignature(cons.MustGetPubKey(), signBz, sigData); err != nil {
 		return err
 	}
 
 	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cs.ConsensusState.Timestamp = timestamp
+	cons.Timestamp = timestamp
+	setConsensusState(store, cdc, cons, height)
 	setClientState(store, cdc, &cs)
 	return nil
 }
@@ -379,7 +385,7 @@ func (cs ClientState) VerifyPacketReceiptAbsence(
 // received of the specified channel at the specified port.
 func (cs ClientState) VerifyNextSequenceRecv(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	_ uint64,
 	_ uint64,
@@ -389,7 +395,7 @@ func (cs ClientState) VerifyNextSequenceRecv(
 	channelID string,
 	nextSequenceRecv uint64,
 ) error {
-	publicKey, sigData, timestamp, err := produceVerificationArgs(cdc, cs, height, prefix, proof)
+	cons, sigData, timestamp, err := produceVerificationArgs(store, cdc, cs, height, prefix, proof)
 	if err != nil {
 		return err
 	}
@@ -400,17 +406,18 @@ func (cs ClientState) VerifyNextSequenceRecv(
 		return err
 	}
 
-	signBz, err := NextSequenceRecvSignBytes(cdc, height.(clienttypes.Height), timestamp, cs.ConsensusState.Diversifier, path, nextSequenceRecv)
+	signBz, err := NextSequenceRecvSignBytes(cdc, height.(clienttypes.Height), timestamp, cons.Diversifier, path, nextSequenceRecv)
 	if err != nil {
 		return err
 	}
 
-	if err := VerifySignature(publicKey, signBz, sigData); err != nil {
+	if err := VerifySignature(cons.MustGetPubKey(), signBz, sigData); err != nil {
 		return err
 	}
 
 	cs.Height = cs.Height.Increment().(clienttypes.Height)
-	cs.ConsensusState.Timestamp = timestamp
+	cons.Timestamp = timestamp
+	setConsensusState(store, cdc, cons, height)
 	setClientState(store, cdc, &cs)
 	return nil
 }
@@ -420,12 +427,13 @@ func (cs ClientState) VerifyNextSequenceRecv(
 // consensus state, the unmarshalled proof representing the signature and timestamp
 // along with the solo-machine sequence encoded in the proofHeight.
 func produceVerificationArgs(
-	cdc codec.BinaryMarshaler,
+	store sdk.KVStore,
+	cdc codec.BinaryCodec,
 	cs ClientState,
 	height exported.Height,
 	prefix exported.Prefix,
 	proof []byte,
-) (cryptotypes.PubKey, signing.SignatureData, uint64, error) {
+) (*ConsensusState, signing.SignatureData, uint64, error) {
 	if revision := height.GetRevisionNumber(); revision != 0 {
 		return nil, nil, 0, sdkerrors.Wrapf(sdkerrors.ErrInvalidHeight, "revision must be 0 for Multisig, got revision-number: %d", revision)
 	}
@@ -444,7 +452,7 @@ func produceVerificationArgs(
 	}
 
 	timestampedSigData := &TimestampedSignatureData{}
-	if err := cdc.UnmarshalBinaryBare(proof, timestampedSigData); err != nil {
+	if err := cdc.Unmarshal(proof, timestampedSigData); err != nil {
 		return nil, nil, 0, sdkerrors.Wrapf(err, "failed to unmarshal proof into type %T", timestampedSigData)
 	}
 
@@ -459,10 +467,6 @@ func produceVerificationArgs(
 		return nil, nil, 0, err
 	}
 
-	if cs.ConsensusState == nil {
-		return nil, nil, 0, sdkerrors.Wrap(clienttypes.ErrInvalidConsensus, "consensus state cannot be empty")
-	}
-
 	if cs.GetLatestHeight().GetRevisionNumber() != height.GetRevisionNumber() {
 		return nil, nil, 0, sdkerrors.Wrapf(
 			sdkerrors.ErrInvalidHeight,
@@ -470,20 +474,14 @@ func produceVerificationArgs(
 		)
 	}
 
-	if cs.ConsensusState.GetTimestamp() > timestamp {
-		return nil, nil, 0, sdkerrors.Wrapf(ErrInvalidProof, "the consensus state timestamp is greater than the signature timestamp (%d >= %d)", cs.ConsensusState.GetTimestamp(), timestamp)
-	}
-
-	publicKey, err := cs.ConsensusState.GetPubKey()
+	cons, err := getConsensusState(store, cdc, height)
 	if err != nil {
 		return nil, nil, 0, err
 	}
 
-	return publicKey, sigData, timestamp, nil
-}
+	if cons.GetTimestamp() > timestamp {
+		return nil, nil, 0, sdkerrors.Wrapf(ErrInvalidProof, "the consensus state timestamp is greater than the signature timestamp (%d >= %d)", cons.GetTimestamp(), timestamp)
+	}
 
-// sets the client state to the store
-func setClientState(store sdk.KVStore, cdc codec.BinaryMarshaler, clientState exported.ClientState) {
-	bz := clienttypes.MustMarshalClientState(cdc, clientState)
-	store.Set([]byte(host.KeyClientState), bz)
+	return cons, sigData, timestamp, nil
 }
