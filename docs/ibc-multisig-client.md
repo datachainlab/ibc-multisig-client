@@ -146,7 +146,7 @@ function checkValidityAndUpdateState(
 
   consensusState = getCurrentConsensusState()
   // header's revision_number must be indicates next revision number
-  assert(header.height.revision_number == clientState.height.revision_number+1)
+  assert(header.height.revision_height > 1 && height.revision_number == clientState.height.revision_number+1)
   // header's revision_height must be 1
   assert(header.height.revision_height == 1)
   assert(header.timestamp >= consensusState.timestamp)
@@ -220,7 +220,7 @@ function verifyClientState(
   counterpartyClientState: ClientState) {
     path = applyPrefix(prefix, "clients/{clientIdentifier}/clientState")
     consensusState = get("clients/{identifier}/consensusStates/{height}")
-    abortTransactionUnless(height.revision_number == clientState.height.revision_number)
+    abortTransactionUnless(height.revision_height > 1 && height.revision_number == clientState.height.revision_number)
     abortTransactionUnless(!clientState.frozen)
     abortTransactionUnless(proof.timestamp >= consensusState.timestamp)
     value = height + consensusState.diversifier + proof.timestamp + path + counterpartyClientState
@@ -238,7 +238,7 @@ function verifyClientConsensusState(
   targetConsensusState: ConsensusState) {
     path = applyPrefix(prefix, "clients/{clientIdentifier}/consensusState/{consensusStateHeight}")
     consensusState = get("clients/{identifier}/consensusStates/{height}")
-    abortTransactionUnless(height.revision_number == clientState.height.revision_number)
+    abortTransactionUnless(height.revision_height > 1 && height.revision_number == clientState.height.revision_number)
     abortTransactionUnless(!clientState.frozen)
     abortTransactionUnless(proof.timestamp >= consensusState.timestamp)
     value = height + consensusState.diversifier + proof.timestamp + path + targetConsensusState
@@ -255,7 +255,7 @@ function verifyConnectionState(
   connectionEnd: ConnectionEnd) {
     path = applyPrefix(prefix, "connection/{connectionIdentifier}")
     consensusState = get("clients/{identifier}/consensusStates/{height}")
-    abortTransactionUnless(height.revision_number == clientState.height.revision_number)
+    abortTransactionUnless(height.revision_height > 1 && height.revision_number == clientState.height.revision_number)
     abortTransactionUnless(!clientState.frozen)
     abortTransactionUnless(proof.timestamp >= consensusState.timestamp)
     value = height + consensusState.diversifier + proof.timestamp + path + connectionEnd
@@ -273,7 +273,7 @@ function verifyChannelState(
   channelEnd: ChannelEnd) {
     path = applyPrefix(prefix, "ports/{portIdentifier}/channels/{channelIdentifier}")
     consensusState = get("clients/{identifier}/consensusStates/{height}")
-    abortTransactionUnless(height.revision_number == clientState.height.revision_number)
+    abortTransactionUnless(height.revision_height > 1 && height.revision_number == clientState.height.revision_number)
     abortTransactionUnless(!clientState.frozen)
     abortTransactionUnless(proof.timestamp >= consensusState.timestamp)
     value = height + consensusState.diversifier + proof.timestamp + path + channelEnd
@@ -292,7 +292,7 @@ function verifyPacketData(
   data: bytes) {
     path = applyPrefix(prefix, "ports/{portIdentifier}/channels/{channelIdentifier}/packets/{sequence}")
     consensusState = get("clients/{identifier}/consensusStates/{height}")
-    abortTransactionUnless(height.revision_number == clientState.height.revision_number)
+    abortTransactionUnless(height.revision_height > 1 && height.revision_number == clientState.height.revision_number)
     abortTransactionUnless(!clientState.frozen)
     abortTransactionUnless(proof.timestamp >= consensusState.timestamp)
     value = height + consensusState.diversifier + proof.timestamp + path + data
@@ -311,7 +311,7 @@ function verifyPacketAcknowledgement(
   acknowledgement: bytes) {
     path = applyPrefix(prefix, "ports/{portIdentifier}/channels/{channelIdentifier}/acknowledgements/{sequence}")
     consensusState = get("clients/{identifier}/consensusStates/{height}")
-    abortTransactionUnless(height.revision_number == clientState.height.revision_number)
+    abortTransactionUnless(height.revision_height > 1 && height.revision_number == clientState.height.revision_number)
     abortTransactionUnless(!clientState.frozen)
     abortTransactionUnless(proof.timestamp >= consensusState.timestamp)
     value = height + consensusState.diversifier + proof.timestamp + path + acknowledgement
@@ -329,7 +329,7 @@ function verifyPacketReceiptAbsence(
   sequence: uint64) {
     path = applyPrefix(prefix, "ports/{portIdentifier}/channels/{channelIdentifier}/receipts/{sequence}")
     consensusState = get("clients/{identifier}/consensusStates/{height}")
-    abortTransactionUnless(height.revision_number == clientState.height.revision_number)
+    abortTransactionUnless(height.revision_height > 1 && height.revision_number == clientState.height.revision_number)
     abortTransactionUnless(!clientState.frozen)
     abortTransactionUnless(proof.timestamp >= consensusState.timestamp)
     value = height + consensusState.diversifier + proof.timestamp + path
@@ -347,7 +347,7 @@ function verifyNextSequenceRecv(
   nextSequenceRecv: uint64) {
     path = applyPrefix(prefix, "ports/{portIdentifier}/channels/{channelIdentifier}/nextSequenceRecv")
     consensusState = get("clients/{identifier}/consensusStates/{height}")
-    abortTransactionUnless(height.revision_number == clientState.height.revision_number)
+    abortTransactionUnless(height.revision_height > 1 && height.revision_number == clientState.height.revision_number)
     abortTransactionUnless(!clientState.frozen)
     abortTransactionUnless(proof.timestamp >= consensusState.timestamp)
     value = height + consensusState.diversifier + proof.timestamp + path + nextSequenceRecv
