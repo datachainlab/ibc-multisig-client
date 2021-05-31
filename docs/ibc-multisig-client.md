@@ -28,7 +28,9 @@ Functions & terms are as defined in [ICS 2](https://github.com/cosmos/ibc/tree/m
 
 This specification must satisfy the client interface defined in [ICS 2](https://github.com/cosmos/ibc/tree/master/spec/core/ics-002-client-semantics).
 
-Conceptually, we assume "big table of signatures in the universe" - that signatures produced are public - and incorporate replay protection accordingly.
+- Conceptually, we assume "big table of signatures in the universe" - that signatures produced are public - and incorporate replay protection accordingly.
+- The order of generation and verification of commitment proofs does not have to be the same
+- One Solo Machine can be tracked by multiple clients
 
 ## Technical Specification
 
@@ -169,25 +171,28 @@ function checkMisbehaviourAndUpdateState(
   misbehaviour: Misbehaviour) {
     h1 = misbehaviour.h1
     h2 = misbehaviour.h2
-    // fetch the previously verified consensus state
-    consensusState = get("clients/{identifier}/consensusStates/{misbehaviour.revision}")
-    pubkey = consensusState.publicKey
-    diversifier = consensusState.diversifier
-    timestamp = consensusState.timestamp
 
-	// NOTE: Two misbehaviour types are supported:
-	// (0). Common conditions:
-	//	- two valid sigAndData has same revision_number
-	// 1. Two different commitments at same revision_height
-	//	- two valid sigAndData has same revision_height
-	// 2. Two conflicting updateClient in same revision_number
-	//	- two valid sigAndData's type are HEADER
+    // NOTE: Two misbehaviour types are supported:
+    // (0). Common conditions:
+    //	- two valid sigAndData has same revision_number
+    // 1. Two different commitments at same revision_height
+    //	- two valid sigAndData has same revision_height
+    // 2. Two conflicting updateClient in same revision_number
+    //	- two valid sigAndData's type are HEADER
 
     assert(misbehaviour.revision_number == h1.height.revision_number && misbehaviour.revision_number == h2.height.revision_number)
     
-    if (h1.signature.dataType != HEADER && h2.signature.dataType != HEADER) {
-        assert(h1.height.revision_height == h1.height.revision_height);
+    if (h1.signature.dataType == HEADER && h2.signature.dataType == HEADER) {
+      // if dataType is HEADER, get the consensus state corresponding to the previous revision number
+      consensusState = get("clients/{identifier}/consensusStates/{misbehaviour.revision-1}")
+    } else {
+      assert(h1.height.revision_height == h1.height.revision_height);
+      consensusState = get("clients/{identifier}/consensusStates/{misbehaviour.revision}")
     }
+
+    pubkey = consensusState.publicKey
+    diversifier = consensusState.diversifier
+    timestamp = consensusState.timestamp
 
     // assert that signature data is different
     assert(misbehaviour.h1.signature.data !== misbehaviour.h2.signature.data)
