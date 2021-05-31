@@ -401,7 +401,7 @@ func (cs ClientState) updateStateIfHeightIsAdvanced(
 ) error {
 	if height.GT(cs.Height) {
 		cs.Height = height.(clienttypes.Height)
-		if timestamp < cons.Timestamp {
+		if timestamp < cons.Timestamp { // TODO is it misbehaviour?
 			return fmt.Errorf("the timestamp must be advanced from previous state")
 		}
 		cons.Timestamp = timestamp

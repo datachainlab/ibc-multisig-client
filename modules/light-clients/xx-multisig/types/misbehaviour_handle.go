@@ -10,8 +10,6 @@ import (
 	"github.com/cosmos/ibc-go/modules/core/exported"
 )
 
-// TODO add a handler for misbehaviour pattern that have different commitments for that same height
-
 // CheckMisbehaviourAndUpdateState determines whether or not the currently registered
 // public key signed over two different messages with the same sequence. If this is true
 // the client state is updated to a frozen status.
@@ -33,10 +31,20 @@ func (cs ClientState) CheckMisbehaviourAndUpdateState(
 		)
 	}
 
-	if soloMisbehaviour.SignatureOne.DataType != HEADER || soloMisbehaviour.SignatureTwo.DataType != HEADER {
-		return nil, sdkerrors.Wrap(errors.New("unknown misbehaviour type"), "DataType must be HEADER")
-	} else if soloMisbehaviour.SignatureOne.Height.RevisionNumber != soloMisbehaviour.SignatureTwo.Height.RevisionNumber {
+	// NOTE: Two misbehaviour types are supported:
+	// (0). Common conditions:
+	//	- two valid sigAndData has same epoch
+	// 1. Two different commitments at same sequence
+	//	- two valid sigAndData has same sequence
+	// 2. Two conflicting updateClient in same epoch
+	//	- two valid sigAndData's type are HEADER
+
+	if soloMisbehaviour.Epoch != soloMisbehaviour.SignatureOne.Height.RevisionNumber || soloMisbehaviour.Epoch != soloMisbehaviour.SignatureTwo.Height.RevisionNumber {
 		return nil, sdkerrors.Wrap(errors.New("unknown misbehaviour type"), "RevisionNumber mismatch")
+	} else if soloMisbehaviour.SignatureOne.DataType == HEADER && soloMisbehaviour.SignatureTwo.DataType == HEADER {
+		// nop
+	} else if soloMisbehaviour.SignatureOne.Height.RevisionHeight != soloMisbehaviour.SignatureTwo.Height.RevisionHeight {
+		return nil, sdkerrors.Wrap(errors.New("unknown misbehaviour type"), "RevisionHeight mismatch")
 	}
 
 	height := clienttypes.NewHeight(soloMisbehaviour.Epoch, 1)
