@@ -11,11 +11,15 @@ import (
 )
 
 // CheckMisbehaviourAndUpdateState determines whether or not the currently registered
-// public key signed over two different messages with the same sequence. If this is true
+// public key signed over two conflicting messages. If this is true
 // the client state is updated to a frozen status.
-// NOTE: Misbehaviour is not tracked for previous public keys, a Multisig may update to
-// a new public key before the misbehaviour is processed. Therefore, misbehaviour is data
-// order processing dependent.
+// NOTE: Currently two misbehaviour types are supported:
+// (0). Common conditions:
+//	- two valid sigAndData has same epoch
+// 1. Two different commitments at same sequence
+//	- two valid sigAndData has same sequence
+// 2. Two conflicting updateClient in same epoch
+//	- two valid sigAndData's type are HEADER
 func (cs ClientState) CheckMisbehaviourAndUpdateState(
 	ctx sdk.Context,
 	cdc codec.BinaryCodec,
@@ -31,24 +35,26 @@ func (cs ClientState) CheckMisbehaviourAndUpdateState(
 		)
 	}
 
-	// NOTE: Two misbehaviour types are supported:
-	// (0). Common conditions:
-	//	- two valid sigAndData has same epoch
-	// 1. Two different commitments at same sequence
-	//	- two valid sigAndData has same sequence
-	// 2. Two conflicting updateClient in same epoch
-	//	- two valid sigAndData's type are HEADER
-
 	if soloMisbehaviour.Epoch != soloMisbehaviour.SignatureOne.Height.RevisionNumber || soloMisbehaviour.Epoch != soloMisbehaviour.SignatureTwo.Height.RevisionNumber {
 		return nil, sdkerrors.Wrap(errors.New("unknown misbehaviour type"), "RevisionNumber mismatch")
-	} else if soloMisbehaviour.SignatureOne.DataType == HEADER && soloMisbehaviour.SignatureTwo.DataType == HEADER {
-		// nop
-	} else if soloMisbehaviour.SignatureOne.Height.RevisionHeight != soloMisbehaviour.SignatureTwo.Height.RevisionHeight {
+	}
+
+	var (
+		consensusState *ConsensusState
+		height         exported.Height
+		err            error
+	)
+	switch {
+	case soloMisbehaviour.SignatureOne.DataType == HEADER && soloMisbehaviour.SignatureTwo.DataType == HEADER:
+		height = clienttypes.NewHeight(soloMisbehaviour.Epoch-1, 1)
+		consensusState, err = getConsensusState(clientStore, cdc, height)
+	case soloMisbehaviour.SignatureOne.Height.RevisionHeight == soloMisbehaviour.SignatureTwo.Height.RevisionHeight:
+		height = clienttypes.NewHeight(soloMisbehaviour.Epoch, 1)
+		consensusState, err = getConsensusState(clientStore, cdc, height)
+	default:
 		return nil, sdkerrors.Wrap(errors.New("unknown misbehaviour type"), "RevisionHeight mismatch")
 	}
 
-	height := clienttypes.NewHeight(soloMisbehaviour.Epoch, 1)
-	consensusState, err := getConsensusState(clientStore, cdc, height)
 	if err != nil {
 		return nil, sdkerrors.Wrapf(
 			clienttypes.ErrConsensusStateNotFound,

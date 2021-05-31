@@ -65,7 +65,7 @@ func checkValidity(cdc codec.BinaryCodec, clientState *ClientState, consensusSta
 		)
 	}
 
-	// assert currently registered public key signed over the new public key with correct sequence
+	// assert currently registered public key signed over the new public key with correct height
 	data, err := HeaderSignBytes(cdc, header)
 	if err != nil {
 		return err
@@ -88,7 +88,7 @@ func checkValidity(cdc codec.BinaryCodec, clientState *ClientState, consensusSta
 	return nil
 }
 
-// update the consensus state to the new public key and an incremented sequence
+// update the consensus state to the new public key and an incremented revision number
 func update(clientState *ClientState, header *Header) (*ClientState, *ConsensusState) {
 	consensusState := &ConsensusState{
 		PublicKey:   header.NewPublicKey,
