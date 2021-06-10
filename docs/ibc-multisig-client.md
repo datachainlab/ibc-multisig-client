@@ -127,11 +127,18 @@ function initialise(clientState: ClientState, consensusState: ConsensusState, he
 }
 ```
 
-The solo machine client `latestClientHeight` function returns the latest sequence.
+The multisig client `latestClientHeight` function returns the latest sequence.
 
 ```typescript
 function latestClientHeight(clientState: ClientState): Height {
   return clientState.height
+}
+```
+
+The multisig client `getConsensusHeight` function returns the height in which the consensus state is stored. The revision_height of Height is always 1.
+```typescript
+function getConsensusHeight(clientState: ClientState): Height {
+  return Height{revision_number: latestClientHeight(clientState).revision_number, revision_height: 1}
 }
 ```
 
@@ -144,11 +151,12 @@ function checkValidityAndUpdateState(
   clientState: ClientState,
   header: Header) {
 
-  consensusState = getCurrentConsensusState()
-  // header's revision_number must be indicates next revision number
-  assert(header.height.revision_height > 1 && height.revision_number == clientState.height.revision_number+1)
-  // header's revision_height must be 1
+  // revision_number must be equal next revision number
+  assert(height.revision_number == clientState.height.revision_number+1)
+  // revision_height must be 1
   assert(header.height.revision_height == 1)
+  consensusHeight = getConsensusHeight(clientState)
+  consensusState = get("clients/{identifier}/consensusStates/{consensusHeight}")
   assert(header.timestamp >= consensusState.timestamp)
   assert(checkSignature(consensusState.publicKey, header.height, header.diversifier, header.signature))
   clientState.height = header.height
@@ -365,8 +373,9 @@ function updateStateIfHeightIsAdvanced(
     clientState.height = height
     assert(timestamp < consensusState.Timestamp)
     consensusState.Timestamp = timestamp
+    consensusHeight = getConsensusHeight(clientState)
     set("clients/{identifier}", clientState)
-    set("clients/{identifier}/consensusStates/{height}", consensusState)
+    set("clients/{identifier}/consensusStates/{consensusHeight}", consensusState)
   }
 }
 ```

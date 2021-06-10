@@ -25,10 +25,10 @@ func (cs ClientState) CheckHeaderAndUpdateState(
 			clienttypes.ErrInvalidHeader, "header type %T, expected  %T", header, &Header{},
 		)
 	}
-	consensusState, err := getConsensusState(clientStore, cdc, smHeader.GetHeight())
+	consensusState, err := getConsensusState(clientStore, cdc, cs.GetConsensusHeight())
 	if err != nil {
 		return nil, nil, sdkerrors.Wrapf(
-			err, "could not get consensus state from clientstore at height: %s", smHeader.GetHeight(),
+			err, "could not get consensus state from clientstore at height: %s", cs.GetConsensusHeight(),
 		)
 	}
 
@@ -43,10 +43,10 @@ func (cs ClientState) CheckHeaderAndUpdateState(
 // checkValidity checks if the Multisig update signature is valid.
 func checkValidity(cdc codec.BinaryCodec, clientState *ClientState, consensusState *ConsensusState, header *Header) error {
 	// assert given epoch is current epoch
-	if header.Height.RevisionNumber != clientState.Height.RevisionNumber {
+	if header.Height.RevisionNumber != clientState.Height.RevisionNumber+1 {
 		return sdkerrors.Wrapf(
 			clienttypes.ErrInvalidHeader,
-			"header epoch does not match the client state epoch (%d != %d)", header.Height.RevisionNumber, clientState.Height.RevisionNumber,
+			"header epoch does not match the client state epoch (%d != %d)", header.Height.RevisionNumber, clientState.Height.RevisionNumber+1,
 		)
 	}
 

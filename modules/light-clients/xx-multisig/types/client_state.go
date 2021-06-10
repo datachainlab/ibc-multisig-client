@@ -35,11 +35,15 @@ func (cs ClientState) ClientType() string {
 	return Multisig
 }
 
-// GetLatestHeight returns the latest sequence number.
+// GetLatestHeight returns the latest height.
 // Return exported.Height to satisfy ClientState interface
-// Revision number is always 0 for a solo-machine.
 func (cs ClientState) GetLatestHeight() exported.Height {
 	return cs.Height
+}
+
+// GetConsensusHeight returns the height in which the consensus state is stored
+func (cs ClientState) GetConsensusHeight() exported.Height {
+	return clienttypes.NewHeight(cs.GetLatestHeight().GetRevisionNumber(), 1)
 }
 
 // Status returns the status of the solo machine client.
@@ -406,7 +410,7 @@ func (cs ClientState) updateStateIfHeightIsAdvanced(
 		}
 		cons.Timestamp = timestamp
 		setClientState(store, cdc, &cs)
-		setConsensusState(store, cdc, cons, height)
+		setConsensusState(store, cdc, cons, clienttypes.NewHeight(cs.Height.RevisionNumber, 1))
 	}
 	return nil
 }
