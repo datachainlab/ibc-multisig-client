@@ -1,7 +1,7 @@
 syntax = "proto3";
 package ibc.lightclients.multisig.v1;
 
-option go_package = "github.com/bluele/ibc-multisig-client/modules/light-clients/xx-multisig/types";
+option go_package = "github.com/datachainlab/ibc-multisig-client/modules/light-clients/xx-multisig/types";
 
 import "gogoproto/gogo.proto";
 import "google/protobuf/any.proto";

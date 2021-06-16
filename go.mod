@@ -1,4 +1,4 @@
-module github.com/bluele/ibc-multisig-client
+module github.com/datachainlab/ibc-multisig-client
 
 go 1.16
 

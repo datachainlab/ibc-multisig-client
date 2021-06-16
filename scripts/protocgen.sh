@@ -31,5 +31,5 @@ Mgoogle/protobuf/any.proto=github.com/cosmos/cosmos-sdk/codec/types:. \
 
 done
 
-cp -r github.com/bluele/ibc-multisig-client/* ./
+cp -r github.com/datachainlab/ibc-multisig-client/* ./
 rm -rf github.com
