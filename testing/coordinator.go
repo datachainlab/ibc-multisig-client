@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 const ChainIDPrefix = "testchain"
@@ -23,12 +22,12 @@ type Coordinator struct {
 	t *testing.T
 
 	CurrentTime time.Time
-	Chains      map[string]*TestChain
+	Chains      map[string]TestChainI
 }
 
 // NewCoordinator initializes Coordinator with N TestChain's
 func NewCoordinator(t *testing.T, n int) *Coordinator {
-	chains := make(map[string]*TestChain)
+	chains := make(map[string]TestChainI)
 	coord := &Coordinator{
 		t:           t,
 		CurrentTime: globalStartTime,
@@ -67,9 +66,9 @@ func (coord *Coordinator) UpdateTime() {
 }
 
 // UpdateTimeForChain updates the clock for a specific chain.
-func (coord *Coordinator) UpdateTimeForChain(chain *TestChain) {
-	chain.CurrentHeader.Time = coord.CurrentTime.UTC()
-	chain.App.BeginBlock(abci.RequestBeginBlock{Header: chain.CurrentHeader})
+func (coord *Coordinator) UpdateTimeForChain(chain TestChainI) {
+	chain.SetCurrentHeaderTime(coord.CurrentTime.UTC())
+	chain.BeginBlock()
 }
 
 // Setup constructs a TM client, connection, and channel on both chains provided. It will
@@ -166,7 +165,7 @@ func (coord *Coordinator) CreateChannels(path *Path) {
 
 // GetChain returns the TestChain using the given chainID and returns an error if it does
 // not exist.
-func (coord *Coordinator) GetChain(chainID string) *TestChain {
+func (coord *Coordinator) GetChain(chainID string) TestChainI {
 	chain, found := coord.Chains[chainID]
 	require.True(coord.t, found, fmt.Sprintf("%s chain does not exist", chainID))
 	return chain
@@ -180,19 +179,19 @@ func GetChainID(index int) string {
 // CommitBlock commits a block on the provided indexes and then increments the global time.
 //
 // CONTRACT: the passed in list of indexes must not contain duplicates
-func (coord *Coordinator) CommitBlock(chains ...*TestChain) {
+func (coord *Coordinator) CommitBlock(chains ...TestChainI) {
 	for _, chain := range chains {
-		chain.App.Commit()
+		chain.GetApp().Commit()
 		chain.NextBlock()
 	}
 	coord.IncrementTime()
 }
 
 // CommitNBlocks commits n blocks to state and updates the block height by 1 for each commit.
-func (coord *Coordinator) CommitNBlocks(chain *TestChain, n uint64) {
+func (coord *Coordinator) CommitNBlocks(chain TestChainI, n uint64) {
 	for i := uint64(0); i < n; i++ {
-		chain.App.BeginBlock(abci.RequestBeginBlock{Header: chain.CurrentHeader})
-		chain.App.Commit()
+		chain.BeginBlock()
+		chain.GetApp().Commit()
 		chain.NextBlock()
 		coord.IncrementTime()
 	}

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	ics23 "github.com/confio/ics23/go"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
@@ -36,6 +37,35 @@ import (
 	"github.com/datachainlab/ibc-multisig-client/testing/mock"
 	"github.com/datachainlab/ibc-multisig-client/testing/simapp"
 )
+
+var _ TestChainI = (*TestChain)(nil)
+
+type TestChainI interface {
+	T() *testing.T
+	GetCoordinator() *Coordinator
+	GetApp() TestingApp
+	GetContext() sdk.Context
+	GetLastHeader() *ibctmtypes.Header
+	GetSenderAccount() authtypes.AccountI
+	GetSimApp() *simapp.SimApp
+
+	QueryProofAtHeight(key []byte, height int64) ([]byte, clienttypes.Height)
+	QueryProof(key []byte) ([]byte, clienttypes.Height)
+
+	SetCurrentHeaderTime(t time.Time)
+	BeginBlock() abci.ResponseBeginBlock
+	NextBlock()
+
+	SendMsgs(msgs ...sdk.Msg) (*sdk.Result, error)
+
+	GetClientState(clientID string) exported.ClientState
+	GetConsensusState(clientID string, height exported.Height) (exported.ConsensusState, bool)
+
+	GetPrefix() commitmenttypes.MerklePrefix
+	ConstructUpdateClientHeader(counterparty TestChainI, clientID string, trustedHeight clienttypes.Height) (*ibctmtypes.Header, error)
+
+	GetChannelCapability(portID, channelID string) *capabilitytypes.Capability
+}
 
 // TestChain is a testing struct that wraps a simapp with the last TM Header, the current ABCI
 // header and the validators of the TestChain. It also contains a field called ChainID. This
@@ -69,7 +99,7 @@ type TestChain struct {
 //
 // Time management is handled by the Coordinator in order to ensure synchrony between chains.
 // Each update of any chain increments the block header time for all chains by 5 seconds.
-func NewTestChain(t *testing.T, coord *Coordinator, chainID string) *TestChain {
+func NewTestChain(t *testing.T, coord *Coordinator, chainID string) TestChainI {
 	// generate validator private/public key
 	privVal := mock.NewPV()
 	pubKey, err := privVal.GetPubKey()
@@ -120,9 +150,30 @@ func NewTestChain(t *testing.T, coord *Coordinator, chainID string) *TestChain {
 	return chain
 }
 
+func (chain *TestChain) T() *testing.T {
+	return chain.t
+}
+
+func (chain *TestChain) GetCoordinator() *Coordinator {
+	return chain.Coordinator
+}
+
+// GetApp returns the current testing application.
+func (chain *TestChain) GetApp() TestingApp {
+	return chain.App
+}
+
 // GetContext returns the current context for the application.
 func (chain *TestChain) GetContext() sdk.Context {
 	return chain.App.GetBaseApp().NewContext(false, chain.CurrentHeader)
+}
+
+func (chain *TestChain) GetLastHeader() *ibctmtypes.Header {
+	return chain.LastHeader
+}
+
+func (chain *TestChain) GetSenderAccount() authtypes.AccountI {
+	return chain.SenderAccount
 }
 
 // GetSimApp returns the SimApp to allow usage ofnon-interface fields.
@@ -225,12 +276,6 @@ func (chain *TestChain) NextBlock() {
 	chain.App.BeginBlock(abci.RequestBeginBlock{Header: chain.CurrentHeader})
 }
 
-// sendMsgs delivers a transaction through the application without returning the result.
-func (chain *TestChain) sendMsgs(msgs ...sdk.Msg) error {
-	_, err := chain.SendMsgs(msgs...)
-	return err
-}
-
 // SendMsgs delivers a transaction through the application. It updates the senders sequence
 // number and updates the TestChain's headers. It returns the result and error if one
 // occurred.
@@ -263,6 +308,25 @@ func (chain *TestChain) SendMsgs(msgs ...sdk.Msg) (*sdk.Result, error) {
 	chain.Coordinator.IncrementTime()
 
 	return r, nil
+}
+
+func (chain *TestChain) NewClientState(trustLevel ibctmtypes.Fraction,
+	trustingPeriod, ubdPeriod, maxClockDrift time.Duration,
+	latestHeight clienttypes.Height, specs []*ics23.ProofSpec,
+	upgradePath []string, allowUpdateAfterExpiry, allowUpdateAfterMisbehaviour bool) *ibctmtypes.ClientState {
+	return &ibctmtypes.ClientState{
+		ChainId:                      chain.ChainID,
+		TrustLevel:                   trustLevel,
+		TrustingPeriod:               trustingPeriod,
+		UnbondingPeriod:              ubdPeriod,
+		MaxClockDrift:                maxClockDrift,
+		LatestHeight:                 latestHeight,
+		FrozenHeight:                 clienttypes.ZeroHeight(),
+		ProofSpecs:                   specs,
+		UpgradePath:                  upgradePath,
+		AllowUpdateAfterExpiry:       allowUpdateAfterExpiry,
+		AllowUpdateAfterMisbehaviour: allowUpdateAfterMisbehaviour,
+	}
 }
 
 // GetClientState retrieves the client state for the provided clientID. The client is
@@ -311,19 +375,11 @@ func (chain *TestChain) GetPrefix() commitmenttypes.MerklePrefix {
 	return commitmenttypes.NewMerklePrefix(chain.App.GetIBCKeeper().ConnectionKeeper.GetCommitmentPrefix().Bytes())
 }
 
-// ConstructUpdateTMClientHeader will construct a valid 07-tendermint Header to update the
-// light client on the source chain.
-func (chain *TestChain) ConstructUpdateTMClientHeader(counterparty *TestChain, clientID string) (*ibctmtypes.Header, error) {
-	return chain.ConstructUpdateTMClientHeaderWithTrustedHeight(counterparty, clientID, clienttypes.ZeroHeight())
-}
-
-// ConstructUpdateTMClientHeader will construct a valid 07-tendermint Header to update the
-// light client on the source chain.
-func (chain *TestChain) ConstructUpdateTMClientHeaderWithTrustedHeight(counterparty *TestChain, clientID string, trustedHeight clienttypes.Height) (*ibctmtypes.Header, error) {
-	header := counterparty.LastHeader
+func (chain *TestChain) ConstructUpdateClientHeader(counterparty TestChainI, clientID string, trustedHeight clienttypes.Height) (*ibctmtypes.Header, error) {
+	header := chain.LastHeader
 	// Relayer must query for LatestHeight on client to get TrustedHeight if the trusted height is not set
 	if trustedHeight.IsZero() {
-		trustedHeight = chain.GetClientState(clientID).GetLatestHeight().(clienttypes.Height)
+		trustedHeight = counterparty.GetClientState(clientID).GetLatestHeight().(clienttypes.Height)
 	}
 	var (
 		tmTrustedVals *tmtypes.ValidatorSet
@@ -332,14 +388,14 @@ func (chain *TestChain) ConstructUpdateTMClientHeaderWithTrustedHeight(counterpa
 	// Once we get TrustedHeight from client, we must query the validators from the counterparty chain
 	// If the LatestHeight == LastHeader.Height, then TrustedValidators are current validators
 	// If LatestHeight < LastHeader.Height, we can query the historical validator set from HistoricalInfo
-	if trustedHeight == counterparty.LastHeader.GetHeight() {
-		tmTrustedVals = counterparty.Vals
+	if trustedHeight == chain.LastHeader.GetHeight() {
+		tmTrustedVals = chain.Vals
 	} else {
 		// NOTE: We need to get validators from counterparty at height: trustedHeight+1
 		// since the last trusted validators for a header at height h
 		// is the NextValidators at h+1 committed to in header h by
 		// NextValidatorsHash
-		tmTrustedVals, ok = counterparty.GetValsAtHeight(int64(trustedHeight.RevisionHeight + 1))
+		tmTrustedVals, ok = chain.GetValsAtHeight(int64(trustedHeight.RevisionHeight + 1))
 		if !ok {
 			return nil, sdkerrors.Wrapf(ibctmtypes.ErrInvalidHeaderHeight, "could not retrieve trusted validators at trustedHeight: %d", trustedHeight)
 		}
@@ -355,7 +411,6 @@ func (chain *TestChain) ConstructUpdateTMClientHeaderWithTrustedHeight(counterpa
 	header.TrustedValidators = trustedVals
 
 	return header, nil
-
 }
 
 // ExpireClient fast forwards the chain's block time by the provided amount of time which will
@@ -521,4 +576,12 @@ func (chain *TestChain) GetChannelCapability(portID, channelID string) *capabili
 	require.True(chain.t, ok)
 
 	return cap
+}
+
+func (chain *TestChain) SetCurrentHeaderTime(t time.Time) {
+	chain.CurrentHeader.Time = t
+}
+
+func (chain *TestChain) BeginBlock() abci.ResponseBeginBlock {
+	return chain.App.BeginBlock(abci.RequestBeginBlock{Header: chain.CurrentHeader})
 }
