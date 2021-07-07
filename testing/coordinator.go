@@ -16,7 +16,7 @@ var (
 	TimeIncrement   = time.Second * 5
 )
 
-// Coordinator is a testing struct which contains N TestChain's. It handles keeping all chains
+// Coordinator is a testing struct which contains N TestMultisigChain's. It handles keeping all chains
 // in sync with regards to time.
 type Coordinator struct {
 	t *testing.T
@@ -25,7 +25,7 @@ type Coordinator struct {
 	Chains      map[string]TestChainI
 }
 
-// NewCoordinator initializes Coordinator with N TestChain's
+// NewCoordinator initializes Coordinator with N TestMultisigChain's
 func NewCoordinator(t *testing.T, n int) *Coordinator {
 	chains := make(map[string]TestChainI)
 	coord := &Coordinator{
@@ -35,22 +35,22 @@ func NewCoordinator(t *testing.T, n int) *Coordinator {
 
 	for i := 0; i < n; i++ {
 		chainID := GetChainID(i)
-		chains[chainID] = NewTestChain(t, coord, chainID)
+		chains[chainID] = NewTestMultisigChain(t, coord, chainID)
 	}
 	coord.Chains = chains
 
 	return coord
 }
 
-// IncrementTime iterates through all the TestChain's and increments their current header time
+// IncrementTime iterates through all the TestMultisigChain's and increments their current header time
 // by 5 seconds.
 //
-// CONTRACT: this function must be called after every Commit on any TestChain.
+// CONTRACT: this function must be called after every Commit on any TestMultisigChain.
 func (coord *Coordinator) IncrementTime() {
 	coord.IncrementTimeBy(TimeIncrement)
 }
 
-// IncrementTimeBy iterates through all the TestChain's and increments their current header time
+// IncrementTimeBy iterates through all the TestMultisigChain's and increments their current header time
 // by specified time.
 func (coord *Coordinator) IncrementTimeBy(increment time.Duration) {
 	coord.CurrentTime = coord.CurrentTime.Add(increment).UTC()
@@ -67,8 +67,8 @@ func (coord *Coordinator) UpdateTime() {
 
 // UpdateTimeForChain updates the clock for a specific chain.
 func (coord *Coordinator) UpdateTimeForChain(chain TestChainI) {
-	chain.SetCurrentHeaderTime(coord.CurrentTime.UTC())
-	chain.BeginBlock()
+	//chain.SetCurrentHeaderTime(coord.CurrentTime.UTC())
+	//chain.BeginBlock()
 }
 
 // Setup constructs a TM client, connection, and channel on both chains provided. It will
@@ -163,7 +163,7 @@ func (coord *Coordinator) CreateChannels(path *Path) {
 	path.EndpointA.UpdateClient()
 }
 
-// GetChain returns the TestChain using the given chainID and returns an error if it does
+// GetChain returns the TestMultisigChain using the given chainID and returns an error if it does
 // not exist.
 func (coord *Coordinator) GetChain(chainID string) TestChainI {
 	chain, found := coord.Chains[chainID]
@@ -180,19 +180,19 @@ func GetChainID(index int) string {
 //
 // CONTRACT: the passed in list of indexes must not contain duplicates
 func (coord *Coordinator) CommitBlock(chains ...TestChainI) {
-	for _, chain := range chains {
-		chain.GetApp().Commit()
-		chain.NextBlock()
-	}
+	//for _, chain := range chains {
+	//	chain.GetApp().Commit()
+	//	chain.NextBlock()
+	//}
 	coord.IncrementTime()
 }
 
 // CommitNBlocks commits n blocks to state and updates the block height by 1 for each commit.
 func (coord *Coordinator) CommitNBlocks(chain TestChainI, n uint64) {
 	for i := uint64(0); i < n; i++ {
-		chain.BeginBlock()
-		chain.GetApp().Commit()
-		chain.NextBlock()
+		//chain.BeginBlock()
+		//chain.GetApp().Commit()
+		//chain.NextBlock()
 		coord.IncrementTime()
 	}
 }

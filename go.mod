@@ -18,4 +18,5 @@ require (
 	github.com/stretchr/testify v1.7.0 // indirect
 	github.com/tendermint/tendermint v0.34.10 // indirect
 	github.com/tendermint/tm-db v0.6.4 // indirect
+	google.golang.org/grpc v1.37.0 // indirect
 )

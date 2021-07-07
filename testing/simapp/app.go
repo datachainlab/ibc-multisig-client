@@ -9,14 +9,12 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
-	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/grpc/tmservice"
 	"github.com/cosmos/cosmos-sdk/client/rpc"
@@ -28,7 +26,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
-	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
@@ -36,18 +33,17 @@ import (
 	authsims "github.com/cosmos/cosmos-sdk/x/auth/simulation"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
+	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
+	authzmodule "github.com/cosmos/cosmos-sdk/x/authz/module"
 	"github.com/cosmos/cosmos-sdk/x/bank"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/capability"
 	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
-	"github.com/cosmos/cosmos-sdk/x/crisis"
 	crisiskeeper "github.com/cosmos/cosmos-sdk/x/crisis/keeper"
 	crisistypes "github.com/cosmos/cosmos-sdk/x/crisis/types"
 	distr "github.com/cosmos/cosmos-sdk/x/distribution"
-	distrclient "github.com/cosmos/cosmos-sdk/x/distribution/client"
 	distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	"github.com/cosmos/cosmos-sdk/x/evidence"
@@ -56,8 +52,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/feegrant"
 	feegrantkeeper "github.com/cosmos/cosmos-sdk/x/feegrant/keeper"
 	feegrantmodule "github.com/cosmos/cosmos-sdk/x/feegrant/module"
-	"github.com/cosmos/cosmos-sdk/x/genutil"
-	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	"github.com/cosmos/cosmos-sdk/x/gov"
 	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
@@ -65,7 +59,6 @@ import (
 	mintkeeper "github.com/cosmos/cosmos-sdk/x/mint/keeper"
 	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
 	"github.com/cosmos/cosmos-sdk/x/params"
-	paramsclient "github.com/cosmos/cosmos-sdk/x/params/client"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	paramproposal "github.com/cosmos/cosmos-sdk/x/params/types/proposal"
@@ -76,7 +69,6 @@ import (
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/cosmos/cosmos-sdk/x/upgrade"
-	upgradeclient "github.com/cosmos/cosmos-sdk/x/upgrade/client"
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	"github.com/cosmos/ibc-go/modules/apps/transfer"
@@ -84,7 +76,6 @@ import (
 	ibctransfertypes "github.com/cosmos/ibc-go/modules/apps/transfer/types"
 	ibc "github.com/cosmos/ibc-go/modules/core"
 	ibcclient "github.com/cosmos/ibc-go/modules/core/02-client"
-	ibcclientclient "github.com/cosmos/ibc-go/modules/core/02-client/client"
 	ibcclienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	porttypes "github.com/cosmos/ibc-go/modules/core/05-port/types"
 	ibchost "github.com/cosmos/ibc-go/modules/core/24-host"
@@ -92,10 +83,6 @@ import (
 
 	multisig "github.com/datachainlab/ibc-multisig-client/modules/light-clients/xx-multisig"
 	ibcmock "github.com/datachainlab/ibc-multisig-client/testing/mock"
-
-	"github.com/cosmos/cosmos-sdk/x/authz"
-	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
-	authzmodule "github.com/cosmos/cosmos-sdk/x/authz/module"
 
 	// unnamed import of statik for swagger UI support
 	_ "github.com/cosmos/cosmos-sdk/client/docs/statik"
@@ -114,27 +101,10 @@ var (
 	// and genesis verification.
 	ModuleBasics = module.NewBasicManager(
 		auth.AppModuleBasic{},
-		genutil.AppModuleBasic{},
 		bank.AppModuleBasic{},
 		capability.AppModuleBasic{},
-		staking.AppModuleBasic{},
-		mint.AppModuleBasic{},
-		distr.AppModuleBasic{},
-		gov.NewAppModuleBasic(
-			paramsclient.ProposalHandler, distrclient.ProposalHandler, upgradeclient.ProposalHandler, upgradeclient.CancelProposalHandler,
-			ibcclientclient.UpdateClientProposalHandler, ibcclientclient.UpgradeProposalHandler,
-		),
-		params.AppModuleBasic{},
-		crisis.AppModuleBasic{},
-		slashing.AppModuleBasic{},
 		ibc.AppModuleBasic{},
-		feegrantmodule.AppModuleBasic{},
-		upgrade.AppModuleBasic{},
-		evidence.AppModuleBasic{},
 		transfer.AppModuleBasic{},
-		ibcmock.AppModuleBasic{},
-		authzmodule.AppModuleBasic{},
-		vesting.AppModuleBasic{},
 		multisig.AppModuleBasic{},
 	)
 
@@ -150,16 +120,11 @@ var (
 	}
 )
 
-var (
-	_ App                     = (*SimApp)(nil)
-	_ servertypes.Application = (*SimApp)(nil)
-)
-
 // SimApp extends an ABCI application, but with most of its parameters exported.
 // They are exported for convenience in creating helper functions, as object
 // capabilities aren't needed for testing.
 type SimApp struct {
-	*baseapp.BaseApp
+	*BaseApp
 	legacyAmino       *codec.LegacyAmino
 	appCodec          codec.Codec
 	interfaceRegistry types.InterfaceRegistry
@@ -217,16 +182,15 @@ func init() {
 func NewSimApp(
 	logger log.Logger, db dbm.DB, traceStore io.Writer, loadLatest bool, skipUpgradeHeights map[int64]bool,
 	homePath string, invCheckPeriod uint, encodingConfig simappparams.EncodingConfig,
-	appOpts servertypes.AppOptions, baseAppOptions ...func(*baseapp.BaseApp),
+	appOpts servertypes.AppOptions, baseAppOptions ...func(*BaseApp),
 ) *SimApp {
 
 	appCodec := encodingConfig.Marshaler
 	legacyAmino := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bApp := baseapp.NewBaseApp(appName, logger, db, encodingConfig.TxConfig.TxDecoder(), baseAppOptions...)
+	bApp := NewBaseApp(appName, logger, db, encodingConfig.TxConfig.TxDecoder(), baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
-	bApp.SetVersion(version.Version)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
 
 	keys := sdk.NewKVStoreKeys(
@@ -253,7 +217,7 @@ func NewSimApp(
 	app.ParamsKeeper = initParamsKeeper(appCodec, legacyAmino, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
 
 	// set the BaseApp's parameter store
-	bApp.SetParamStore(app.ParamsKeeper.Subspace(baseapp.Paramspace).WithKeyTable(paramskeeper.ConsensusParamsKeyTable()))
+	//bApp.SetParamStore(app.ParamsKeeper.Subspace(baseapp.Paramspace).WithKeyTable(paramskeeper.ConsensusParamsKeyTable()))
 
 	// add capability keeper and ScopeToModule for ibc module
 	app.CapabilityKeeper = capabilitykeeper.NewKeeper(appCodec, keys[capabilitytypes.StoreKey], memKeys[capabilitytypes.MemStoreKey])
@@ -345,31 +309,31 @@ func NewSimApp(
 
 	// NOTE: we may consider parsing `appOpts` inside module constructors. For the moment
 	// we prefer to be more strict in what arguments the modules expect.
-	var skipGenesisInvariants = cast.ToBool(appOpts.Get(crisis.FlagSkipGenesisInvariants))
+	//var skipGenesisInvariants = cast.ToBool(appOpts.Get(crisis.FlagSkipGenesisInvariants))
 
 	// NOTE: Any module instantiated in the module manager that is later modified
 	// must be passed by reference here.
 	app.mm = module.NewManager(
-		genutil.NewAppModule(
-			app.AccountKeeper, app.StakingKeeper, app.BaseApp.DeliverTx,
-			encodingConfig.TxConfig,
-		),
+		//genutil.NewAppModule(
+		//	app.AccountKeeper, app.StakingKeeper, app.BaseApp.DeliverTx,
+		//	encodingConfig.TxConfig,
+		//),
 		auth.NewAppModule(appCodec, app.AccountKeeper, authsims.RandomGenesisAccounts),
-		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper),
+		//vesting.NewAppModule(app.AccountKeeper, app.BankKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
-		crisis.NewAppModule(&app.CrisisKeeper, skipGenesisInvariants),
-		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
-		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
-		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
-		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
-		distr.NewAppModule(appCodec, app.DistrKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
-		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
-		upgrade.NewAppModule(app.UpgradeKeeper),
-		evidence.NewAppModule(app.EvidenceKeeper),
+		//crisis.NewAppModule(&app.CrisisKeeper, skipGenesisInvariants),
+		//feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
+		//gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
+		//mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
+		//slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
+		//distr.NewAppModule(appCodec, app.DistrKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
+		//staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
+		//upgrade.NewAppModule(app.UpgradeKeeper),
+		//evidence.NewAppModule(app.EvidenceKeeper),
 		ibc.NewAppModule(app.IBCKeeper),
 		params.NewAppModule(app.ParamsKeeper),
-		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
+		//authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
 		transferModule,
 		mockModule,
 	)
@@ -379,10 +343,15 @@ func NewSimApp(
 	// CanWithdrawInvariant invariant.
 	// NOTE: staking module is required if HistoricalEntries param > 0
 	app.mm.SetOrderBeginBlockers(
-		upgradetypes.ModuleName, minttypes.ModuleName, distrtypes.ModuleName, slashingtypes.ModuleName,
-		evidencetypes.ModuleName, stakingtypes.ModuleName, ibchost.ModuleName,
+		//upgradetypes.ModuleName,
+		//minttypes.ModuleName,
+		//distrtypes.ModuleName,
+		//slashingtypes.ModuleName,
+		//evidencetypes.ModuleName,
+		//stakingtypes.ModuleName,
+		ibchost.ModuleName,
 	)
-	app.mm.SetOrderEndBlockers(crisistypes.ModuleName, govtypes.ModuleName, stakingtypes.ModuleName)
+	//app.mm.SetOrderEndBlockers(crisistypes.ModuleName, govtypes.ModuleName, stakingtypes.ModuleName)
 
 	// NOTE: The genutils module must occur after staking so that pools are
 	// properly initialized with tokens from genesis accounts.
@@ -390,10 +359,22 @@ func NewSimApp(
 	// so that other modules that want to create or claim capabilities afterwards in InitChain
 	// can do so safely.
 	app.mm.SetOrderInitGenesis(
-		capabilitytypes.ModuleName, authtypes.ModuleName, banktypes.ModuleName, distrtypes.ModuleName, stakingtypes.ModuleName,
-		slashingtypes.ModuleName, govtypes.ModuleName, minttypes.ModuleName, crisistypes.ModuleName,
-		ibchost.ModuleName, genutiltypes.ModuleName, evidencetypes.ModuleName, authz.ModuleName, ibctransfertypes.ModuleName,
-		ibcmock.ModuleName, feegrant.ModuleName,
+		capabilitytypes.ModuleName,
+		authtypes.ModuleName,
+		banktypes.ModuleName,
+		distrtypes.ModuleName,
+		//stakingtypes.ModuleName,
+		//slashingtypes.ModuleName,
+		//govtypes.ModuleName,
+		//minttypes.ModuleName,
+		//crisistypes.ModuleName,
+		ibchost.ModuleName,
+		//genutiltypes.ModuleName,
+		//evidencetypes.ModuleName,
+		//authz.ModuleName,
+		ibctransfertypes.ModuleName,
+		ibcmock.ModuleName,
+		//feegrant.ModuleName,
 	)
 
 	app.mm.RegisterInvariants(&app.CrisisKeeper)
@@ -435,21 +416,9 @@ func NewSimApp(
 	// initialize BaseApp
 	app.SetInitChainer(app.InitChainer)
 	app.SetBeginBlocker(app.BeginBlocker)
-	anteHandler, err := ante.NewAnteHandler(
-		ante.HandlerOptions{
-			AccountKeeper:   app.AccountKeeper,
-			BankKeeper:      app.BankKeeper,
-			SignModeHandler: encodingConfig.TxConfig.SignModeHandler(),
-			FeegrantKeeper:  app.FeeGrantKeeper,
-			SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
-		},
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	app.SetAnteHandler(anteHandler)
-
+	app.SetAnteHandler(NewAnteHandler(
+		*app.IBCKeeper, ante.DefaultSigVerificationGasConsumer,
+	))
 	app.SetEndBlocker(app.EndBlocker)
 
 	if loadLatest {
@@ -492,13 +461,37 @@ func (app *SimApp) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.Re
 }
 
 // InitChainer application update at chain initialization
-func (app *SimApp) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain {
+func (app *SimApp) InitChainer(ctx sdk.Context, appStateBytes []byte) error {
 	var genesisState GenesisState
-	if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
-		panic(err)
+	if err := json.Unmarshal(appStateBytes, &genesisState); err != nil {
+		return err
 	}
-	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
-	return app.mm.InitGenesis(ctx, app.appCodec, genesisState)
+	//app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
+	app.mm.InitGenesis(ctx, app.appCodec, genesisState)
+	return nil
+}
+
+// NewAnteHandler returns an AnteHandler that checks and increments sequence
+// numbers, checks signatures & account numbers, and deducts fees from the first
+// signer.
+func NewAnteHandler(
+	ibcKeeper ibckeeper.Keeper,
+	sigGasConsumer ante.SignatureVerificationGasConsumer,
+) sdk.AnteHandler {
+	return sdk.ChainAnteDecorators(
+		// ante.NewSetUpContextDecorator(), // outermost AnteDecorator. SetUpContext must be called first
+		// ante.NewMempoolFeeDecorator(),
+		ante.NewValidateBasicDecorator(),
+		// ante.NewValidateMemoDecorator(ak),
+		// ante.NewConsumeGasForTxSizeDecorator(ak),
+		// NewSetPubKeyDecorator(ak), // SetPubKeyDecorator must be called before all signature verification decorators
+		// NewValidateSigCountDecorator(ak),
+		// NewDeductFeeDecorator(ak, bankKeeper),
+		// NewSigGasConsumeDecorator(ak, sigGasConsumer),
+		// NewSigVerificationDecorator(ak),
+		// NewIncrementSequenceDecorator(ak),
+		// ibcante.NewProofVerificationDecorator(ibcKeeper.ClientKeeper, ibcKeeper.ChannelKeeper), // innermost AnteDecorator
+	)
 }
 
 // LoadHeight loads a particular height
@@ -569,7 +562,7 @@ func (app *SimApp) GetSubspace(moduleName string) paramstypes.Subspace {
 // TestingApp functions
 
 // GetBaseApp implements the TestingApp interface.
-func (app *SimApp) GetBaseApp() *baseapp.BaseApp {
+func (app *SimApp) GetBaseApp() *BaseApp {
 	return app.BaseApp
 }
 
@@ -622,7 +615,14 @@ func (app *SimApp) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APICon
 
 // RegisterTxService implements the Application.RegisterTxService method.
 func (app *SimApp) RegisterTxService(clientCtx client.Context) {
-	authtx.RegisterTxService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.BaseApp.Simulate, app.interfaceRegistry)
+	authtx.RegisterTxService(
+		app.BaseApp.GRPCQueryRouter(),
+		clientCtx,
+		func(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
+			return sdk.GasInfo{}, nil, nil
+		},
+		app.interfaceRegistry,
+	)
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.

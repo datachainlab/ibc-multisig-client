@@ -16,18 +16,18 @@ type Path struct {
 // NewPath constructs an endpoint for each chain using the default values
 // for the endpoints. Each endpoint is updated to have a pointer to the
 // counterparty endpoint.
-func NewPath(chainA, chainB TestChainI) *Path {
-	endpointA := NewDefaultEndpoint(chainA)
-	endpointB := NewDefaultEndpoint(chainB)
-
-	endpointA.Counterparty = endpointB
-	endpointB.Counterparty = endpointA
-
-	return &Path{
-		EndpointA: endpointA,
-		EndpointB: endpointB,
-	}
-}
+//func NewPath(chainA, chainB TestChainI) *Path {
+//	endpointA := NewDefaultEndpoint(chainA)
+//	endpointB := NewDefaultEndpoint(chainB)
+//
+//	endpointA.Counterparty = endpointB
+//	endpointB.Counterparty = endpointA
+//
+//	return &Path{
+//		EndpointA: endpointA,
+//		EndpointB: endpointB,
+//	}
+//}
 
 // SetChannelOrdered sets the channel order for both endpoints to ORDERED.
 func (path *Path) SetChannelOrdered() {

@@ -9,9 +9,10 @@ import (
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/modules/core/03-connection/types"
 	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
-	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
 	host "github.com/cosmos/ibc-go/modules/core/24-host"
 	"github.com/cosmos/ibc-go/modules/core/exported"
+
+	"github.com/datachainlab/ibc-multisig-client/modules/light-clients/xx-multisig/types"
 )
 
 // Endpoint is a which represents a channel endpoint and its associated
@@ -33,7 +34,7 @@ type Endpoint struct {
 // NewEndpoint constructs a new endpoint without the counterparty.
 // CONTRACT: the counterparty endpoint must be set by the caller.
 func NewEndpoint(
-	chain *TestChain, clientConfig ClientConfig,
+	chain TestChainI, clientConfig ClientConfig,
 	connectionConfig *ConnectionConfig, channelConfig *ChannelConfig,
 ) *Endpoint {
 	return &Endpoint{
@@ -44,32 +45,14 @@ func NewEndpoint(
 	}
 }
 
-// NewDefaultEndpoint constructs a new endpoint using default values.
-// CONTRACT: the counterparty endpoitn must be set by the caller.
-func NewDefaultEndpoint(chain TestChainI) *Endpoint {
-	return &Endpoint{
-		Chain:            chain,
-		ClientConfig:     NewTendermintConfig(),
-		ConnectionConfig: NewConnectionConfig(),
-		ChannelConfig:    NewChannelConfig(),
-	}
-}
-
 // QueryProof queries proof associated with this endpoint using the lastest client state
 // height on the counterparty chain.
 func (endpoint *Endpoint) QueryProof(key []byte) ([]byte, clienttypes.Height) {
-	// obtain the counterparty client representing the chain associated with the endpoint
-	clientState := endpoint.Counterparty.Chain.GetClientState(endpoint.Counterparty.ClientID)
+	//// obtain the counterparty client representing the chain associated with the endpoint
+	//clientState := endpoint.Counterparty.Chain.GetClientState(endpoint.Counterparty.ClientID)
 
 	// query proof on the counterparty using the latest height of the IBC client
-	return endpoint.QueryProofAtHeight(key, clientState.GetLatestHeight().GetRevisionHeight())
-}
-
-// QueryProofAtHeight queries proof associated with this endpoint using the proof height
-// providied
-func (endpoint *Endpoint) QueryProofAtHeight(key []byte, height uint64) ([]byte, clienttypes.Height) {
-	// query proof on the counterparty using the latest height of the IBC client
-	return endpoint.Chain.QueryProofAtHeight(key, int64(height))
+	return endpoint.Chain.QueryProof(key)
 }
 
 // CreateClient creates an IBC client on the endpoint. It will update the
@@ -77,7 +60,7 @@ func (endpoint *Endpoint) QueryProofAtHeight(key []byte, height uint64) ([]byte,
 // NOTE: a solo machine client will be created with an empty diversifier.
 func (endpoint *Endpoint) CreateClient() (err error) {
 	// ensure counterparty has committed state
-	endpoint.Chain.GetCoordinator().CommitBlock(endpoint.Counterparty.Chain)
+	//endpoint.Chain.GetCoordinator().CommitBlock(endpoint.Counterparty.Chain)
 
 	var (
 		clientState    exported.ClientState
@@ -85,24 +68,13 @@ func (endpoint *Endpoint) CreateClient() (err error) {
 	)
 
 	switch endpoint.ClientConfig.GetClientType() {
-	case exported.Tendermint:
-		tmConfig, ok := endpoint.ClientConfig.(*TendermintConfig)
+	case types.Multisig:
+		msConfig, ok := endpoint.ClientConfig.(*MultisigConfig)
 		require.True(endpoint.Chain.T(), ok)
 
-		counterParty, ok := endpoint.Counterparty.Chain.(*TestChain)
-		require.True(endpoint.Chain.T(), ok)
-
-		height := counterParty.LastHeader.GetHeight().(clienttypes.Height)
-		clientState = counterParty.NewClientState(
-			tmConfig.TrustLevel, tmConfig.TrustingPeriod, tmConfig.UnbondingPeriod, tmConfig.MaxClockDrift,
-			height, commitmenttypes.GetSDKSpecs(), UpgradePath, tmConfig.AllowUpdateAfterExpiry, tmConfig.AllowUpdateAfterMisbehaviour,
-		)
-		consensusState = counterParty.LastHeader.ConsensusState()
-	case exported.Solomachine:
-		// TODO
-		//		solo := NewSolomachine(chain.t, endpoint.Chain.Codec, clientID, "", 1)
-		//		clientState = solo.ClientState()
-		//		consensusState = solo.ConsensusState()
+		ms := NewMultisig(endpoint.Chain.T(), endpoint.Chain.GetApp().AppCodec(), msConfig.Diversifier, msConfig.NKeys)
+		clientState = ms.ClientState()
+		consensusState = ms.ConsensusState()
 	default:
 		err = fmt.Errorf("client type %s is not supported", endpoint.ClientConfig.GetClientType())
 	}
@@ -137,8 +109,9 @@ func (endpoint *Endpoint) UpdateClient() (err error) {
 	)
 
 	switch endpoint.ClientConfig.GetClientType() {
-	case exported.Tendermint:
-		header, err = endpoint.Counterparty.Chain.ConstructUpdateClientHeader(endpoint.Chain, endpoint.ClientID, clienttypes.ZeroHeight())
+	case types.Multisig:
+		//header, err = endpoint.Counterparty.Chain.ConstructUpdateClientHeader(endpoint.Chain, endpoint.ClientID, clienttypes.ZeroHeight())
+		return
 	default:
 		err = fmt.Errorf("client type %s is not supported", endpoint.ClientConfig.GetClientType())
 	}
@@ -256,11 +229,11 @@ func (endpoint *Endpoint) QueryConnectionHandshakeProof() (
 
 	// query proof for the consensus state on the counterparty
 	consensusKey := host.FullConsensusStateKey(endpoint.Counterparty.ClientID, consensusHeight)
-	proofConsensus, _ = endpoint.Counterparty.QueryProofAtHeight(consensusKey, proofHeight.GetRevisionHeight())
+	proofConsensus, _ = endpoint.Counterparty.QueryProof(consensusKey)
 
 	// query proof for the connection on the counterparty
 	connectionKey := host.ConnectionKey(endpoint.Counterparty.ConnectionID)
-	proofConnection, _ = endpoint.Counterparty.QueryProofAtHeight(connectionKey, proofHeight.GetRevisionHeight())
+	proofConnection, _ = endpoint.Counterparty.QueryProof(connectionKey)
 
 	return
 }

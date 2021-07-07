@@ -16,7 +16,6 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
-	bam "github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -69,13 +68,9 @@ func Setup(isCheckTx bool) *SimApp {
 		}
 
 		// Initialize the chain
-		app.InitChain(
-			abci.RequestInitChain{
-				Validators:      []abci.ValidatorUpdate{},
-				ConsensusParams: DefaultConsensusParams,
-				AppStateBytes:   stateBytes,
-			},
-		)
+		if err = app.InitChain(stateBytes); err != nil {
+			panic(err)
+		}
 	}
 
 	return app
@@ -101,16 +96,9 @@ func SetupWithGenesisAccounts(genAccs []authtypes.GenesisAccount, balances ...ba
 		panic(err)
 	}
 
-	app.InitChain(
-		abci.RequestInitChain{
-			Validators:      []abci.ValidatorUpdate{},
-			ConsensusParams: DefaultConsensusParams,
-			AppStateBytes:   stateBytes,
-		},
-	)
-
-	app.Commit()
-	app.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: app.LastBlockHeight() + 1}})
+	if err = app.InitChain(stateBytes); err != nil {
+		panic(err)
+	}
 
 	return app
 }
@@ -228,17 +216,17 @@ func TestAddr(addr string, bech string) (sdk.AccAddress, error) {
 }
 
 // CheckBalance checks the balance of an account.
-func CheckBalance(t *testing.T, app *SimApp, addr sdk.AccAddress, balances sdk.Coins) {
-	ctxCheck := app.BaseApp.NewContext(true, tmproto.Header{})
-	require.True(t, balances.IsEqual(app.BankKeeper.GetAllBalances(ctxCheck, addr)))
-}
+//func CheckBalance(t *testing.T, app *SimApp, addr sdk.AccAddress, balances sdk.Coins) {
+//	ctxCheck := app.BaseApp.NewContext(true, tmproto.Header{})
+//	require.True(t, balances.IsEqual(app.BankKeeper.GetAllBalances(ctxCheck, addr)))
+//}
 
 // SignAndDeliver signs and delivers a transaction. No simulation occurs as the
 // ibc testing package causes checkState and deliverState to diverge in block time.
 func SignAndDeliver(
-	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header tmproto.Header, msgs []sdk.Msg,
+	t *testing.T, txCfg client.TxConfig, app *BaseApp, header tmproto.Header, msgs []sdk.Msg,
 	chainID string, accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
-) (sdk.GasInfo, *sdk.Result, error) {
+) (*sdk.Result, error) {
 
 	tx, err := helpers.GenTx(
 		txCfg,
@@ -253,8 +241,7 @@ func SignAndDeliver(
 	require.NoError(t, err)
 
 	// Simulate a sending a transaction and committing a block
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
-	gInfo, res, err := app.Deliver(txCfg.TxEncoder(), tx)
+	res, err := app.Deliver(txCfg.TxEncoder(), tx)
 
 	if expPass {
 		require.NoError(t, err)
@@ -264,10 +251,7 @@ func SignAndDeliver(
 		require.Nil(t, res)
 	}
 
-	app.EndBlock(abci.RequestEndBlock{})
-	app.Commit()
-
-	return gInfo, res, err
+	return res, err
 }
 
 // GenSequenceOfTxs generates a set of signed transactions of messages, such

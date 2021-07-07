@@ -1,13 +1,10 @@
 package ibctesting
 
 import (
-	"time"
-
 	connectiontypes "github.com/cosmos/ibc-go/modules/core/03-connection/types"
 	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
-	"github.com/cosmos/ibc-go/modules/core/exported"
-	ibctmtypes "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
 
+	"github.com/datachainlab/ibc-multisig-client/modules/light-clients/xx-multisig/types"
 	"github.com/datachainlab/ibc-multisig-client/testing/mock"
 )
 
@@ -15,28 +12,20 @@ type ClientConfig interface {
 	GetClientType() string
 }
 
-type TendermintConfig struct {
-	TrustLevel                   ibctmtypes.Fraction
-	TrustingPeriod               time.Duration
-	UnbondingPeriod              time.Duration
-	MaxClockDrift                time.Duration
-	AllowUpdateAfterExpiry       bool
-	AllowUpdateAfterMisbehaviour bool
+type MultisigConfig struct {
+	Diversifier string
+	NKeys       uint64
 }
 
-func NewTendermintConfig() *TendermintConfig {
-	return &TendermintConfig{
-		TrustLevel:                   DefaultTrustLevel,
-		TrustingPeriod:               TrustingPeriod,
-		UnbondingPeriod:              UnbondingPeriod,
-		MaxClockDrift:                MaxClockDrift,
-		AllowUpdateAfterExpiry:       false,
-		AllowUpdateAfterMisbehaviour: false,
+func NewMultisigConfig(diversifier string, nKeys uint64) *MultisigConfig {
+	return &MultisigConfig{
+		Diversifier: diversifier,
+		NKeys:       nKeys,
 	}
 }
 
-func (tmcfg *TendermintConfig) GetClientType() string {
-	return exported.Tendermint
+func (tmcfg *MultisigConfig) GetClientType() string {
+	return types.Multisig
 }
 
 type ConnectionConfig struct {

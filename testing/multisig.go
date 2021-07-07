@@ -24,13 +24,14 @@ import (
 type Multisig struct {
 	t *testing.T
 
-	cdc                      codec.BinaryCodec
-	ClientID                 string
-	PrivateKeys              []cryptotypes.PrivKey // keys used for signing
-	PublicKeys               []cryptotypes.PubKey  // keys used for generating solo machine pub key
-	PublicKey                cryptotypes.PubKey    // key used for verification
-	RevisionNumber           uint64
-	RevisionHeight           uint64
+	cdc         codec.BinaryCodec
+	PrivateKeys []cryptotypes.PrivKey // keys used for signing
+	PublicKeys  []cryptotypes.PubKey  // keys used for generating solo machine pub key
+	PublicKey   cryptotypes.PubKey    // key used for verification
+
+	RevisionNumber uint64
+	RevisionHeight uint64
+
 	AllowUpdateAfterProposal bool
 	Time                     uint64
 	Diversifier              string
@@ -39,16 +40,15 @@ type Multisig struct {
 // NewMultisig returns a new multisig instance with an `nKeys` amount of
 // generated private/public key pairs and a sequence starting at 1. If nKeys
 // is greater than 1 then a multisig public key is used.
-func NewMultisig(t *testing.T, cdc codec.BinaryCodec, clientID, diversifier string, nKeys uint64) *Multisig {
+func NewMultisig(t *testing.T, cdc codec.BinaryCodec, diversifier string, nKeys uint64) *Multisig {
 	privKeys, pubKeys, pk := GenerateMultisigKeys(t, nKeys)
 
 	return &Multisig{
 		t:                        t,
 		cdc:                      cdc,
-		ClientID:                 clientID,
 		PrivateKeys:              privKeys,
 		PublicKeys:               pubKeys,
-		RevisionNumber:           1,
+		RevisionNumber:           0,
 		RevisionHeight:           1,
 		AllowUpdateAfterProposal: false,
 		PublicKey:                pk,
@@ -57,16 +57,8 @@ func NewMultisig(t *testing.T, cdc codec.BinaryCodec, clientID, diversifier stri
 	}
 }
 
-// GenerateKeys generates a new set of secp256k1 private keys and public keys.
-// If the number of keys is greater than one then the public key returned represents
-// a multisig public key. The private keys are used for signing, the public
-// keys are used for generating the public key and the public key is used for
-// solo machine verification. The usage of secp256k1 is entirely arbitrary.
-// The key type can be swapped for any key type supported by the PublicKey
-// interface, if needed. The same is true for the amino based Multisignature
-// public key.
 func GenerateMultisigKeys(t *testing.T, n uint64) ([]cryptotypes.PrivKey, []cryptotypes.PubKey, cryptotypes.PubKey) {
-	require.Greater(t, n, 1, "make two or more keys")
+	require.Greater(t, n, uint64(1), "make two or more keys")
 
 	privKeys := make([]cryptotypes.PrivKey, n)
 	pubKeys := make([]cryptotypes.PubKey, n)
@@ -75,13 +67,7 @@ func GenerateMultisigKeys(t *testing.T, n uint64) ([]cryptotypes.PrivKey, []cryp
 		pubKeys[i] = privKeys[i].PubKey()
 	}
 
-	var pk cryptotypes.PubKey
-	if len(privKeys) > 1 {
-		// generate multi sig pk
-		pk = kmultisig.NewLegacyAminoPubKey(int(n), pubKeys)
-	} else {
-		pk = privKeys[0].PubKey()
-	}
+	var pk cryptotypes.PubKey = kmultisig.NewLegacyAminoPubKey(int(n), pubKeys)
 
 	return privKeys, pubKeys, pk
 }
@@ -129,7 +115,7 @@ func (ms *Multisig) CreateHeader() *multisigtypes.Header {
 	dataBz, err := ms.cdc.Marshal(data)
 	require.NoError(ms.t, err)
 
-	height := clienttypes.NewHeight(0, ms.RevisionHeight)
+	height := clienttypes.NewHeight(ms.RevisionNumber, ms.RevisionHeight)
 
 	signBytes := &multisigtypes.SignBytes{
 		Height:      height,
@@ -153,7 +139,7 @@ func (ms *Multisig) CreateHeader() *multisigtypes.Header {
 	}
 
 	// assumes successful header update
-	ms.RevisionHeight++
+	//ms.RevisionHeight++
 	ms.PrivateKeys = newPrivKeys
 	ms.PublicKeys = newPubKeys
 	ms.PublicKey = newPubKey
@@ -163,7 +149,7 @@ func (ms *Multisig) CreateHeader() *multisigtypes.Header {
 
 // CreateMisbehaviour constructs testing misbehaviour for the solo machine client
 // by signing over two different data bytes at the same sequence.
-func (ms *Multisig) CreateMisbehaviour() *multisigtypes.Misbehaviour {
+func (ms *Multisig) CreateMisbehaviour(clientID string) *multisigtypes.Misbehaviour {
 	path := ms.GetClientStatePath("counterparty")
 	dataOne, err := multisigtypes.ClientStateDataBytes(ms.cdc, path, ms.ClientState())
 	require.NoError(ms.t, err)
@@ -216,7 +202,7 @@ func (ms *Multisig) CreateMisbehaviour() *multisigtypes.Misbehaviour {
 	}
 
 	return &multisigtypes.Misbehaviour{
-		ClientId:     ms.ClientID,
+		ClientId:     clientID,
 		Epoch:        ms.RevisionNumber,
 		SignatureOne: &signatureOne,
 		SignatureTwo: &signatureTwo,
