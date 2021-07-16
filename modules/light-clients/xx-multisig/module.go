@@ -3,7 +3,6 @@ package multisig
 import (
 	"encoding/json"
 
-	"github.com/bluele/ibc-multisig-client/modules/light-clients/xx-multisig/types"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -11,6 +10,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
+
+	"github.com/datachainlab/ibc-multisig-client/modules/light-clients/xx-multisig/types"
 )
 
 // ----------------------------------------------------------------------------
